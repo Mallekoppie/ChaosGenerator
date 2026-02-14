@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"mallekoppie/ChaosGenerator/internal/contracts"
 
@@ -358,24 +359,66 @@ func (c *Client) startTestInteractive() {
 func (c *Client) stopTest() {
 	fmt.Println("\n=== Stop Test Execution ===")
 
-	testExecutionId := c.readInput("Test Execution ID: ")
-
-	if testExecutionId == "" {
-		fmt.Println("Test Execution ID is required.")
+	// Get running tests
+	resp, err := c.grpcClient.GetRunningTests(c.ctx, &contracts.GetRunningTestsRequest{})
+	if err != nil {
+		fmt.Printf("Error getting running tests: %v\n", err)
 		return
 	}
 
-	resp, err := c.grpcClient.StopTestExecution(c.ctx, &contracts.StopTestExecutionRequest{
-		TestExecutionId: testExecutionId,
+	runningTests := resp.Tests
+	if len(runningTests) == 0 {
+		fmt.Println("No tests are currently running.")
+		return
+	}
+
+	// Display running tests
+	fmt.Println("\nRunning Tests:")
+	fmt.Println("─────────────────────────────────────────────────────────────────")
+	for i, test := range runningTests {
+		fmt.Printf("%d. Test ID: %s\n", i+1, test.TestExecutionId)
+		fmt.Printf("   Use Case: %s (%s)\n", test.UseCaseName, test.UseCaseId)
+		fmt.Printf("   Target: %s (%s)\n", test.TargetName, test.TargetId)
+		fmt.Printf("   Agents: %d | Users per Agent: %d\n", test.NumberOfAgents, test.SimulatedUsersPerAgent)
+		fmt.Printf("   Started: %v\n", time.Unix(test.StartTime, 0).Format("2006-01-02 15:04:05"))
+		fmt.Println()
+	}
+	fmt.Println("─────────────────────────────────────────────────────────────────")
+
+	// Get user selection
+	selection := c.readInt(fmt.Sprintf("Enter test number to stop (1-%d) or 0 to cancel: ", len(runningTests)))
+
+	if selection == 0 {
+		fmt.Println("Cancelled.")
+		return
+	}
+
+	if selection < 1 || selection > len(runningTests) {
+		fmt.Println("Invalid selection.")
+		return
+	}
+
+	selectedTest := runningTests[selection-1]
+
+	// Confirm
+	confirm := c.readBool(fmt.Sprintf("Stop test '%s' on target '%s'?", selectedTest.UseCaseName, selectedTest.TargetName))
+	if !confirm {
+		fmt.Println("Cancelled.")
+		return
+	}
+
+	// Stop the test
+	stopResp, err := c.grpcClient.StopTestExecution(c.ctx, &contracts.StopTestExecutionRequest{
+		TestExecutionId: selectedTest.TestExecutionId,
 	})
 	if err != nil {
 		fmt.Printf("Error stopping test: %v\n", err)
 		return
 	}
 
-	if resp.Success {
+	if stopResp.Success {
 		fmt.Println("✓ Test execution stopped successfully")
 	} else {
-		fmt.Printf("✗ Failed to stop test: %s\n", resp.Message)
+		fmt.Printf("✗ Failed to stop test: %s\n", stopResp.Message)
 	}
 }

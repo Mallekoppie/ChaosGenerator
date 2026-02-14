@@ -36,6 +36,7 @@ service ChaosMaster {
     // Test execution operations
     rpc StartTestExecution(StartTestExecutionRequest) returns (StartTestExecutionResponse) {}
     rpc StopTestExecution(StopTestExecutionRequest) returns (StopTestExecutionResponse) {}
+    rpc GetRunningTests(GetRunningTestsRequest) returns (GetRunningTestsResponse) {}
 }
 
 // Agent messages
@@ -361,4 +362,21 @@ message StopTestExecutionRequest {
 message StopTestExecutionResponse {
     bool success = 1;
     string message = 2;
+}
+
+message GetRunningTestsRequest {}
+
+message GetRunningTestsResponse {
+    repeated RunningTestExecution tests = 1;
+}
+
+message RunningTestExecution {
+    string testExecutionId = 1;
+    string useCaseId = 2;
+    string useCaseName = 3;
+    string targetId = 4;
+    string targetName = 5;
+    int32 simulatedUsersPerAgent = 6;
+    int32 numberOfAgents = 7;
+    int64 startTime = 8; // Unix timestamp
 }

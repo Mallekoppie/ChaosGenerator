@@ -358,7 +358,14 @@ func (s *ChaosMasterServer) GetUseCases(ctx context.Context, req *contracts.GetU
 	platform.Log.Info("Received GetUseCases request")
 
 	// Hardcoded use cases
-	useCases := []*contracts.UseCase{
+	useCases := getAllUseCases()
+
+	return &contracts.GetUseCasesResponse{UseCases: useCases}, nil
+}
+
+// Helper function to get all use cases
+func getAllUseCases() []*contracts.UseCase {
+	return []*contracts.UseCase{
 		{Id: "uc1", Name: "Health Check", Path: "/health", Method: "GET", Description: "Minimal overhead health check endpoint"},
 		{Id: "uc2", Name: "Status Endpoint", Path: "/api/v1/status", Method: "GET", Description: "Status endpoint with lightweight JSON metadata"},
 		{Id: "uc3", Name: "Simple Query", Path: "/api/v1/users/", Method: "GET", Description: "Simple query operation with small payload (1-2KB)"},
@@ -371,8 +378,17 @@ func (s *ChaosMasterServer) GetUseCases(ctx context.Context, req *contracts.GetU
 		{Id: "uc10", Name: "Network Saturation", Path: "/api/v1/data/process", Method: "POST", Description: "Network bandwidth saturation testing (100-250MB)"},
 		{Id: "uc11", Name: "Memory Pressure", Path: "/api/v1/analytics/stream", Method: "POST", Description: "Long-running operations for memory leak detection (10-20KB)"},
 	}
+}
 
-	return &contracts.GetUseCasesResponse{UseCases: useCases}, nil
+// Helper function to get use case name by ID
+func getUseCaseName(useCaseId string) string {
+	useCases := getAllUseCases()
+	for _, uc := range useCases {
+		if uc.Id == useCaseId {
+			return uc.Name
+		}
+	}
+	return "Unknown Use Case"
 }
 
 // Test execution operations
@@ -463,6 +479,20 @@ func (s *ChaosMasterServer) StartTestExecution(ctx context.Context, req *contrac
 		zap.String("testExecutionId", testExecutionId),
 		zap.Int("agents", successCount))
 
+	// Track the running test
+	tracker := GetTestExecutionTracker()
+	runningTest := &RunningTest{
+		TestExecutionId:        testExecutionId,
+		UseCaseId:              req.UseCaseId,
+		UseCaseName:            getUseCaseName(req.UseCaseId),
+		TargetId:               target.ID,
+		TargetName:             target.Name,
+		SimulatedUsersPerAgent: req.SimulatedUsersPerAgent,
+		AgentIds:               agentIds[:successCount],
+		StartTime:              time.Now(),
+	}
+	tracker.AddTest(runningTest)
+
 	return &contracts.StartTestExecutionResponse{
 		TestExecutionId: testExecutionId,
 		Success:         true,
@@ -477,14 +507,24 @@ func (s *ChaosMasterServer) StopTestExecution(ctx context.Context, req *contract
 		return nil, status.Errorf(codes.InvalidArgument, "test execution ID is required")
 	}
 
-	// Send StopTestCommand to all connected agents
+	// Get the running test details
+	tracker := GetTestExecutionTracker()
+	runningTest, exists := tracker.GetTest(req.TestExecutionId)
+	if !exists {
+		return &contracts.StopTestExecutionResponse{
+			Success: false,
+			Message: "Test execution not found or already stopped",
+		}, nil
+	}
+
+	// Send StopTestCommand only to agents running this test
 	connMgr := GetConnectionManager()
-	agentIds := connMgr.GetAllAgentIds()
+	agentIds := runningTest.AgentIds
 
 	if len(agentIds) == 0 {
 		return &contracts.StopTestExecutionResponse{
 			Success: false,
-			Message: "No agents connected",
+			Message: "No agents running this test",
 		}, nil
 	}
 
@@ -513,9 +553,31 @@ func (s *ChaosMasterServer) StopTestExecution(ctx context.Context, req *contract
 		zap.String("testExecutionId", req.TestExecutionId),
 		zap.Int("agents", successCount))
 
+	// Remove test from tracker
+	tracker.RemoveTest(req.TestExecutionId)
+
 	return &contracts.StopTestExecutionResponse{
 		Success: true,
 		Message: fmt.Sprintf("Stop command sent to %d agent(s)", successCount),
+	}, nil
+}
+
+func (s *ChaosMasterServer) GetRunningTests(ctx context.Context, req *contracts.GetRunningTestsRequest) (*contracts.GetRunningTestsResponse, error) {
+	platform.Log.Info("Received GetRunningTests request")
+
+	tracker := GetTestExecutionTracker()
+	runningTests := tracker.GetAllTests()
+
+	// Convert to protobuf format
+	pbTests := make([]*contracts.RunningTestExecution, len(runningTests))
+	for i, test := range runningTests {
+		pbTests[i] = test.ToProto()
+	}
+
+	platform.Log.Info("Returning running tests", zap.Int("count", len(pbTests)))
+
+	return &contracts.GetRunningTestsResponse{
+		Tests: pbTests,
 	}, nil
 }
 

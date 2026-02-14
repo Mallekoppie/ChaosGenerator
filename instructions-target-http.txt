@@ -36,6 +36,8 @@ The master server must contain configuration for all the use-cases. we must be a
 
 the server implementation will be updated to not be configurable and only support the documented use cases. the configuration that we can do will be for the remote service location and connection details since this can change depending on where the solution is deployed.
 
+when an agent disconnects from the chaos master it needs to be removed from the db and no longer returned when the client asks for all the connected agents.
+
 The server does not need to store the use-cases in its schema. since we are updating it to only support the documented use cases that can be added in code. The chaos master service can store the target configurations in the database. when we trigger a use-case we will select a target from the DB that will be hit. The target information will be:
 name
 Address
@@ -71,3 +73,7 @@ The client will get the use cases by calling the server. the user will then sele
 All test executions are always at full speed. We will control the volume with the number of deployed agents and the number of users per agent generating traffic.
 
 Tests must run until a function on the chaos master is called to stop the execution.
+
+When selecting the stop test option on the client it must list the running tests and then the user just needs to enter the number for the running test to stop it.
+
+

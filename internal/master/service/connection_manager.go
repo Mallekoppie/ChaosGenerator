@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	pb "mallekoppie/ChaosGenerator/internal/contracts"
+	"mallekoppie/ChaosGenerator/internal/master/repositories"
 
 	"github.com/Mallekoppie/goslow/platform"
 	"go.uber.org/zap"
@@ -50,13 +51,22 @@ func (cm *ConnectionManager) AddConnection(agentId string, stream pb.ChaosMaster
 	platform.Log.Info("Agent connected", zap.String("agentId", agentId))
 }
 
-// RemoveConnection removes an agent connection
+// RemoveConnection removes an agent connection and deletes it from the database
 func (cm *ConnectionManager) RemoveConnection(agentId string) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
 	delete(cm.connections, agentId)
 	platform.Log.Info("Agent disconnected", zap.String("agentId", agentId))
+
+	// Delete agent from database
+	if err := repositories.DeleteAgent(agentId); err != nil {
+		platform.Log.Error("Error deleting agent from database on disconnect",
+			zap.String("agentId", agentId),
+			zap.Error(err))
+	} else {
+		platform.Log.Info("Agent removed from database", zap.String("agentId", agentId))
+	}
 }
 
 // GetConnection gets a connection by agent ID
