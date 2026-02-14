@@ -2,7 +2,7 @@ package swagger
 
 import (
 	"errors"
-	util "mallekoppie/ChaosGenerator/ChaosAgent/util"
+	util "mallekoppie/ChaosGenerator/internal/agent/util"
 
 	"log"
 	"net/http"

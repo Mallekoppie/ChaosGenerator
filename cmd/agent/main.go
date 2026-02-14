@@ -13,7 +13,7 @@ import (
 	"log"
 	"net"
 
-	"mallekoppie/ChaosGenerator/ChaosAgent/service"
+	"mallekoppie/ChaosGenerator/internal/agent/service"
 
 	"github.com/tkanos/gonfig"
 

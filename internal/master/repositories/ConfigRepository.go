@@ -1,7 +1,7 @@
 package repositories
 
 import (
-	"mallekoppie/ChaosGenerator/ChaosMaster/models"
+	"mallekoppie/ChaosGenerator/internal/master/models"
 
 	"encoding/json"
 	"io/ioutil"

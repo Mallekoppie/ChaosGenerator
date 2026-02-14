@@ -5,8 +5,8 @@ import (
 	"github.com/Mallekoppie/goslow/platform"
 	"go.uber.org/zap"
 	"io/ioutil"
-	"mallekoppie/ChaosGenerator/ChaosMaster/logic"
-	"mallekoppie/ChaosGenerator/ChaosMaster/models"
+	"mallekoppie/ChaosGenerator/internal/master/logic"
+	"mallekoppie/ChaosGenerator/internal/master/models"
 	"net/http"
 
 	"github.com/gorilla/mux"

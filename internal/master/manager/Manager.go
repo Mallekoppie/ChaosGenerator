@@ -8,12 +8,12 @@ import (
 
 	"github.com/tkanos/gonfig"
 
-	pb "mallekoppie/ChaosGenerator/ChaosMaster/contract"
+	pb "mallekoppie/ChaosGenerator/contract"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
-	"mallekoppie/ChaosGenerator/ChaosMaster/repositories"
+	"mallekoppie/ChaosGenerator/internal/master/repositories"
 	"github.com/Mallekoppie/goslow/platform"
 	"go.uber.org/zap"
 )

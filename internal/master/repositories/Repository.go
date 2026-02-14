@@ -3,7 +3,7 @@ package repositories
 import (
 	"github.com/Mallekoppie/goslow/platform"
 	"go.uber.org/zap"
-	"mallekoppie/ChaosGenerator/ChaosMaster/models"
+	"mallekoppie/ChaosGenerator/internal/master/models"
 
 	"encoding/json"
 	"errors"

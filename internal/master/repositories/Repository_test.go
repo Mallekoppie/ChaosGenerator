@@ -3,7 +3,7 @@ package repositories
 import (
 	"fmt"
 	"github.com/Mallekoppie/goslow/platform"
-	"mallekoppie/ChaosGenerator/ChaosMaster/models"
+	"mallekoppie/ChaosGenerator/internal/master/models"
 	"testing"
 
 	"github.com/google/uuid"

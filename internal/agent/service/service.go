@@ -5,7 +5,7 @@ import (
 	"log"
 	pb "mallekoppie/ChaosGenerator/contract"
 
-	core "mallekoppie/ChaosGenerator/ChaosAgent/go"
+	core "mallekoppie/ChaosGenerator/internal/agent/go"
 
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"

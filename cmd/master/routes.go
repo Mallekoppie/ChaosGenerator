@@ -1,7 +1,7 @@
 package main
 
 import (
-	"mallekoppie/ChaosGenerator/ChaosMaster/service"
+	"mallekoppie/ChaosGenerator/internal/master/service"
 	"net/http"
 
 	"github.com/Mallekoppie/goslow/platform"

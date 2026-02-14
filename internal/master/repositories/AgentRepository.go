@@ -10,7 +10,7 @@ import (
 	"go.uber.org/zap"
 	"io/ioutil"
 	"log"
-	"mallekoppie/ChaosGenerator/ChaosMaster/models"
+	"mallekoppie/ChaosGenerator/internal/master/models"
 	"net/http"
 	"strconv"
 	"time"
