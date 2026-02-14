@@ -1,10 +1,11 @@
 package logic
 
 import (
-	"github.com/Mallekoppie/goslow/platform"
-	"go.uber.org/zap"
 	"mallekoppie/ChaosGenerator/internal/master/models"
 	"mallekoppie/ChaosGenerator/internal/master/repositories"
+
+	"github.com/Mallekoppie/goslow/platform"
+	"go.uber.org/zap"
 
 	"errors"
 )

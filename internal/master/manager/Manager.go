@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc/credentials"
 
 	"mallekoppie/ChaosGenerator/internal/master/repositories"
+
 	"github.com/Mallekoppie/goslow/platform"
 	"go.uber.org/zap"
 )
@@ -94,7 +95,7 @@ func GetAgent(id string) (agent ChaosAgent, err error) {
 
 	agents := getAgents()
 	number := len(agents)
-	platform.Logger.Info("Number of agents returned",zap.Int("agent_number", number))
+	platform.Logger.Info("Number of agents returned", zap.Int("agent_number", number))
 
 	for i := range agents {
 		log.Println("inside loop")

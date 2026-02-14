@@ -6,14 +6,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Mallekoppie/goslow/platform"
-	"go.uber.org/zap"
 	"io/ioutil"
 	"log"
 	"mallekoppie/ChaosGenerator/internal/master/models"
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/Mallekoppie/goslow/platform"
+	"go.uber.org/zap"
 )
 
 var (

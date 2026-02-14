@@ -1,9 +1,10 @@
 package repositories
 
 import (
+	"mallekoppie/ChaosGenerator/internal/master/models"
+
 	"github.com/Mallekoppie/goslow/platform"
 	"go.uber.org/zap"
-	"mallekoppie/ChaosGenerator/internal/master/models"
 
 	"encoding/json"
 	"errors"

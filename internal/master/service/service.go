@@ -2,12 +2,13 @@ package service
 
 import (
 	"encoding/json"
-	"github.com/Mallekoppie/goslow/platform"
-	"go.uber.org/zap"
 	"io/ioutil"
 	"mallekoppie/ChaosGenerator/internal/master/logic"
 	"mallekoppie/ChaosGenerator/internal/master/models"
 	"net/http"
+
+	"github.com/Mallekoppie/goslow/platform"
+	"go.uber.org/zap"
 
 	"github.com/gorilla/mux"
 )
