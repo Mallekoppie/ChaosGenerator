@@ -1,0 +1,154 @@
+syntax = "proto3";
+
+package contract;
+
+option go_package = "mallekoppie/ChaosGenerator/internal/contracts";
+
+service ChaosMaster {
+    // Agent operations
+    rpc GetAllAgents(GetAllAgentsRequest) returns (GetAllAgentsResponse) {}
+    rpc UpdateAgent(UpdateAgentRequest) returns (UpdateAgentResponse) {}
+    rpc DeleteAgent(DeleteAgentRequest) returns (DeleteAgentResponse) {}
+    
+    // TestGroup operations
+    rpc GetAllTestGroups(GetAllTestGroupsRequest) returns (GetAllTestGroupsResponse) {}
+    rpc GetTestGroup(GetTestGroupRequest) returns (GetTestGroupResponse) {}
+    rpc AddTestGroup(AddTestGroupRequest) returns (AddTestGroupResponse) {}
+    rpc UpdateTestGroup(UpdateTestGroupRequest) returns (UpdateTestGroupResponse) {}
+    rpc DeleteTestGroup(DeleteTestGroupRequest) returns (DeleteTestGroupResponse) {}
+    
+    // TestCollection operations
+    rpc AddTestCollection(AddTestCollectionRequest) returns (AddTestCollectionResponse) {}
+    rpc UpdateTestCollection(UpdateTestCollectionRequest) returns (UpdateTestCollectionResponse) {}
+    rpc DeleteTestCollection(DeleteTestCollectionRequest) returns (DeleteTestCollectionResponse) {}
+}
+
+// Agent messages
+message Agent {
+    string id = 1;
+    string host = 2;
+    int32 port = 3;
+    int32 metricsPort = 4;
+    bool enabled = 5;
+    string status = 6;
+}
+
+message GetAllAgentsRequest {}
+
+message GetAllAgentsResponse {
+    repeated Agent agents = 1;
+}
+
+message UpdateAgentRequest {
+    Agent agent = 1;
+}
+
+message UpdateAgentResponse {
+    bool success = 1;
+}
+
+message DeleteAgentRequest {
+    Agent agent = 1;
+}
+
+message DeleteAgentResponse {
+    bool success = 1;
+}
+
+// TestGroup messages
+message MasterHeader {
+    string id = 1;
+    string name = 2;
+    string value = 3;
+}
+
+message MasterTest {
+    string id = 1;
+    string name = 2;
+    string method = 3;
+    string url = 4;
+    string body = 5;
+    repeated MasterHeader headers = 6;
+    int32 responseCode = 7;
+    string responseBody = 8;
+}
+
+message MasterTestCollection {
+    string id = 1;
+    string name = 2;
+    string description = 3;
+    repeated MasterTest tests = 4;
+    string groupId = 5;
+}
+
+message TestGroup {
+    string id = 1;
+    string name = 2;
+    string description = 3;
+    repeated MasterTestCollection testCollections = 4;
+}
+
+message GetAllTestGroupsRequest {}
+
+message GetAllTestGroupsResponse {
+    repeated TestGroup testGroups = 1;
+}
+
+message GetTestGroupRequest {
+    string id = 1;
+}
+
+message GetTestGroupResponse {
+    TestGroup testGroup = 1;
+}
+
+message AddTestGroupRequest {
+    TestGroup testGroup = 1;
+}
+
+message AddTestGroupResponse {
+    bool success = 1;
+}
+
+message UpdateTestGroupRequest {
+    TestGroup testGroup = 1;
+}
+
+message UpdateTestGroupResponse {
+    bool success = 1;
+}
+
+message DeleteTestGroupRequest {
+    string id = 1;
+}
+
+message DeleteTestGroupResponse {
+    bool success = 1;
+}
+
+// TestCollection messages
+message AddTestCollectionRequest {
+    MasterTestCollection testCollection = 1;
+}
+
+message AddTestCollectionResponse {
+    bool success = 1;
+    string error = 2;
+}
+
+message UpdateTestCollectionRequest {
+    MasterTestCollection testCollection = 1;
+}
+
+message UpdateTestCollectionResponse {
+    bool success = 1;
+    string error = 2;
+}
+
+message DeleteTestCollectionRequest {
+    string id = 1;
+}
+
+message DeleteTestCollectionResponse {
+    bool success = 1;
+}

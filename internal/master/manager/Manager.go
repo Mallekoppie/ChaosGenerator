@@ -42,7 +42,7 @@ func init() {
 
 func getAgents() []ChaosAgent {
 	if len(agents) < 1 {
-		platform.Logger.Info("No agents. Re-initializing")
+		platform.Log.Info("No agents. Re-initializing")
 		initializeAgents()
 	}
 
@@ -57,23 +57,23 @@ func initializeAgents() {
 		return
 	}
 
-	platform.Logger.Info("Initializing agents")
+	platform.Log.Info("Initializing agents")
 	for i := range agents {
 		err := agents[i].Init()
 		if err != nil {
-			platform.Logger.Error("Unable to initialize agent", zap.Error(err))
+			platform.Log.Error("Unable to initialize agent", zap.Error(err))
 		}
 	}
 	count := len(agents)
-	platform.Logger.Info("Config count during initialization", zap.Int("count", count))
-	platform.Logger.Info("Initialized agents")
+	platform.Log.Info("Config count during initialization", zap.Int("count", count))
+	platform.Log.Info("Initialized agents")
 }
 
 func GetChaosMasterAgents() error {
 	agents = make([]ChaosAgent, 0)
 	consulAgents, err := repositories.GetAllAgents(consulAgentServiceName)
 	if err != nil {
-		platform.Logger.Error("Unable to get agent configuration", zap.Error(err))
+		platform.Log.Error("Unable to get agent configuration", zap.Error(err))
 		return err
 	}
 
@@ -95,13 +95,13 @@ func GetAgent(id string) (agent ChaosAgent, err error) {
 
 	agents := getAgents()
 	number := len(agents)
-	platform.Logger.Info("Number of agents returned", zap.Int("agent_number", number))
+	platform.Log.Info("Number of agents returned", zap.Int("agent_number", number))
 
 	for i := range agents {
 		log.Println("inside loop")
 		log.Printf("Comparing %v to %v", agents[i].Id, id)
 		if agents[i].Id == id {
-			platform.Logger.Debug("Agent Found")
+			platform.Log.Debug("Agent Found")
 			return agents[i], nil
 		}
 	}

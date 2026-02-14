@@ -30,14 +30,14 @@ func AddTestGroup(testGroup models.TestGroup) error {
 	testGroup.TestCollections = nil
 	err := platform.Database.BoltDb.SaveObject(bucketTestGroup, testGroup.ID, testGroup)
 	if err != nil {
-		platform.Logger.Error("Error saving TestGroup to DB", zap.Error(err))
+		platform.Log.Error("Error saving TestGroup to DB", zap.Error(err))
 		return err
 	}
 
 	for _, v := range testCollection {
 		err = platform.Database.BoltDb.SaveObject(bucketTestCollection, v.ID, v)
 		if err != nil {
-			platform.Logger.Error("Error saving TestCollection", zap.Error(err))
+			platform.Log.Error("Error saving TestCollection", zap.Error(err))
 			return err
 		}
 	}
@@ -49,13 +49,13 @@ func GetTestGroup(id string) (testGroup models.TestGroup, err error) {
 
 	err = platform.Database.BoltDb.ReadObject(bucketTestGroup, id, &testGroup)
 	if err != nil {
-		platform.Logger.Error("Error reading testgroup from database", zap.String("id", id))
+		platform.Log.Error("Error reading testgroup from database", zap.String("id", id))
 		return
 	}
 
 	collections, err := platform.Database.BoltDb.ReadAllObjects(bucketTestCollection)
 	if err != nil {
-		platform.Logger.Error("Error reading Test Collections for Test Group", zap.String("test_group_id", id), zap.Error(err))
+		platform.Log.Error("Error reading Test Collections for Test Group", zap.String("test_group_id", id), zap.Error(err))
 		return
 	}
 
@@ -65,7 +65,7 @@ func GetTestGroup(id string) (testGroup models.TestGroup, err error) {
 		col := models.TestCollection{}
 		err = json.Unmarshal([]byte(v), &col)
 		if err != nil {
-			platform.Logger.Error("Error unmarshalling test collection json data", zap.Error(err))
+			platform.Log.Error("Error unmarshalling test collection json data", zap.Error(err))
 			return
 		}
 
@@ -85,7 +85,7 @@ func DoesTestGroupExist(id string) (bool, error) {
 	if err != nil && err == platform.ErrNoEntryFoundInDB {
 		return false, nil
 	} else if err != nil {
-		platform.Logger.Error("Error reading object to see if it exists", zap.Error(err))
+		platform.Log.Error("Error reading object to see if it exists", zap.Error(err))
 		return false, err
 	}
 
@@ -96,12 +96,12 @@ func DeleteAllTestGroups() error {
 
 	err := platform.Database.BoltDb.RemoveBucket(bucketTestCollection)
 	if err != nil {
-		platform.Logger.Error("Error remove test collections", zap.Error(err))
+		platform.Log.Error("Error remove test collections", zap.Error(err))
 		return err
 	}
 	err = platform.Database.BoltDb.RemoveBucket(bucketTestGroup)
 	if err != nil {
-		platform.Logger.Error("Error remove test groups", zap.Error(err))
+		platform.Log.Error("Error remove test groups", zap.Error(err))
 		return err
 	}
 
@@ -112,7 +112,7 @@ func DeleteTestGroup(id string) error {
 
 	result, err := platform.Database.BoltDb.ReadAllObjects(bucketTestCollection)
 	if err != nil {
-		platform.Logger.Error("Error reading test collections before removing them", zap.Error(err))
+		platform.Log.Error("Error reading test collections before removing them", zap.Error(err))
 		return err
 	}
 
@@ -120,19 +120,19 @@ func DeleteTestGroup(id string) error {
 		col := models.TestCollection{}
 		err = json.Unmarshal([]byte(v), &col)
 		if err != nil {
-			platform.Logger.Error("Error unmarshalling test collection", zap.Error(err))
+			platform.Log.Error("Error unmarshalling test collection", zap.Error(err))
 			return err
 		}
 
 		if col.GroupId == id {
-			platform.Logger.Debug("Removing test collection as part of test group deletion", zap.String("id", col.ID))
+			platform.Log.Debug("Removing test collection as part of test group deletion", zap.String("id", col.ID))
 			platform.Database.BoltDb.RemoveObject(bucketTestCollection, col.ID)
 		}
 	}
 
 	err = platform.Database.BoltDb.RemoveObject(bucketTestGroup, id)
 	if err != nil {
-		platform.Logger.Error("Error removing test group", zap.Error(err))
+		platform.Log.Error("Error removing test group", zap.Error(err))
 		return err
 	}
 
@@ -142,7 +142,7 @@ func DeleteTestGroup(id string) error {
 func DeleteTestCollection(id string) error {
 	err := platform.Database.BoltDb.RemoveObject(bucketTestCollection, id)
 	if err != nil {
-		platform.Logger.Error("Error removing test collection", zap.Error(err))
+		platform.Log.Error("Error removing test collection", zap.Error(err))
 		return err
 	}
 
@@ -153,7 +153,7 @@ func UpdateTestGroup(testGroup models.TestGroup) error {
 
 	err := platform.Database.BoltDb.SaveObject(bucketTestGroup, testGroup.ID, testGroup)
 	if err != nil {
-		platform.Logger.Error("Error saving Test Group", zap.Error(err))
+		platform.Log.Error("Error saving Test Group", zap.Error(err))
 		return err
 	}
 
@@ -164,7 +164,7 @@ func UpdateTestCollection(col models.TestCollection) error {
 
 	err := platform.Database.BoltDb.SaveObject(bucketTestCollection, col.ID, col)
 	if err != nil {
-		platform.Logger.Error("Error saving test collection", zap.Error(err), zap.String("id", col.ID))
+		platform.Log.Error("Error saving test collection", zap.Error(err), zap.String("id", col.ID))
 		return err
 	}
 
@@ -175,7 +175,7 @@ func GetAllTestGroups() (testGroups []models.TestGroup, err error) {
 
 	result, err := platform.Database.BoltDb.ReadAllObjects(bucketTestGroup)
 	if err != nil {
-		platform.Logger.Error("Error reading all test groups from DB", zap.Error(err))
+		platform.Log.Error("Error reading all test groups from DB", zap.Error(err))
 		return nil, err
 	}
 
@@ -185,7 +185,7 @@ func GetAllTestGroups() (testGroups []models.TestGroup, err error) {
 		group := models.TestGroup{}
 		err = json.Unmarshal([]byte(v), &group)
 		if err != nil {
-			platform.Logger.Error("Error unmarchalling TestGroup", zap.Error(err))
+			platform.Log.Error("Error unmarchalling TestGroup", zap.Error(err))
 			return nil, err
 		}
 
@@ -199,7 +199,7 @@ func AddTestCollection(tests models.TestCollection) error {
 
 	err := platform.Database.BoltDb.SaveObject(bucketTestCollection, tests.ID, tests)
 	if err != nil {
-		platform.Logger.Error("Error saving test collection", zap.Error(err))
+		platform.Log.Error("Error saving test collection", zap.Error(err))
 		return err
 	}
 
@@ -210,7 +210,7 @@ func GetTestCollectionsForGroup(id string) (tests []models.TestCollection, err e
 
 	result, err := platform.Database.BoltDb.ReadAllObjects(bucketTestCollection)
 	if err != nil {
-		platform.Logger.Error("Error reading all test collections", zap.Error(err))
+		platform.Log.Error("Error reading all test collections", zap.Error(err))
 		return nil, err
 	}
 
@@ -220,7 +220,7 @@ func GetTestCollectionsForGroup(id string) (tests []models.TestCollection, err e
 		col := models.TestCollection{}
 		err = json.Unmarshal([]byte(v), &col)
 		if err != nil {
-			platform.Logger.Error("Error unmarshalling test collection", zap.Error(err))
+			platform.Log.Error("Error unmarshalling test collection", zap.Error(err))
 			return nil, err
 		}
 
@@ -235,7 +235,7 @@ func GetTestCollectionsForGroup(id string) (tests []models.TestCollection, err e
 func AddAgent(agent models.Agent) error {
 	err := platform.Database.BoltDb.SaveObject(bucketAgent, agent.Id, agent)
 	if err != nil {
-		platform.Logger.Error("Error saving agent", zap.Error(err))
+		platform.Log.Error("Error saving agent", zap.Error(err))
 		return err
 	}
 
@@ -245,7 +245,7 @@ func AddAgent(agent models.Agent) error {
 func DeleteAgent(id string) error {
 	err := platform.Database.BoltDb.RemoveObject(bucketAgent, id)
 	if err != nil {
-		platform.Logger.Error("Error removing agent", zap.Error(err))
+		platform.Log.Error("Error removing agent", zap.Error(err))
 		return err
 	}
 
@@ -255,7 +255,7 @@ func DeleteAgent(id string) error {
 func DeleteAllAgents() error {
 	err := platform.Database.BoltDb.RemoveBucket(bucketAgent)
 	if err != nil {
-		platform.Logger.Error("Error removing all agents", zap.Error(err))
+		platform.Log.Error("Error removing all agents", zap.Error(err))
 		return err
 	}
 
@@ -265,7 +265,7 @@ func DeleteAllAgents() error {
 func UpdateAgent(agent models.Agent) error {
 	err := platform.Database.BoltDb.SaveObject(bucketAgent, agent.Id, agent)
 	if err != nil {
-		platform.Logger.Error("Error Updating agent", zap.Error(err))
+		platform.Log.Error("Error Updating agent", zap.Error(err))
 		return err
 	}
 
@@ -280,7 +280,7 @@ func GetAllAgents() (agents []models.Agent, err error) {
 		return agents, nil
 	}
 	if err != nil {
-		platform.Logger.Error("Error retrieving agents", zap.Error(err))
+		platform.Log.Error("Error retrieving agents", zap.Error(err))
 		return nil, err
 	}
 
@@ -288,7 +288,7 @@ func GetAllAgents() (agents []models.Agent, err error) {
 		agent := models.Agent{}
 		err = json.Unmarshal([]byte(v), &agent)
 		if err != nil {
-			platform.Logger.Error("Error unmarshalling agent", zap.Error(err))
+			platform.Log.Error("Error unmarshalling agent", zap.Error(err))
 			return nil, err
 		}
 

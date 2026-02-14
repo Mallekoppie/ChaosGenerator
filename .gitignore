@@ -25,6 +25,8 @@ ChaosAgent/simple.json
 .vs/
 agent.pb.go
 agent_grpc.pb.go
+master.pb.go
+master_grpc.pb.go
 
 ChaosAgent/tests/
 chaos-master-web/package-lock.json
@@ -36,3 +38,6 @@ random.json
 /ChaosMaster/log.txt
 UI/.idea/*
 UI/node_modules/*
+cmd/master/chaos_master.db.lock
+internal/master/repositories/database.db
+cmd/master/chaos_master.db

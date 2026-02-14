@@ -34,7 +34,7 @@ func DeleteAgent(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	data, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		platform.Logger.Error("Unable to read request body: ", zap.Error(err))
+		platform.Log.Error("Unable to read request body: ", zap.Error(err))
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -43,7 +43,7 @@ func DeleteAgent(w http.ResponseWriter, r *http.Request) {
 
 	err = json.Unmarshal(data, &agent)
 	if err != nil {
-		platform.Logger.Error("Unable to unmarshal request: ", zap.Error(err))
+		platform.Log.Error("Unable to unmarshal request: ", zap.Error(err))
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -61,7 +61,7 @@ func UpdateAgent(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	data, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		platform.Logger.Error("Unable to read request body: ", zap.Error(err))
+		platform.Log.Error("Unable to read request body: ", zap.Error(err))
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -70,7 +70,7 @@ func UpdateAgent(w http.ResponseWriter, r *http.Request) {
 
 	err = json.Unmarshal(data, &agent)
 	if err != nil {
-		platform.Logger.Error("Unable to unmarshal request: ", zap.Error(err))
+		platform.Log.Error("Unable to unmarshal request: ", zap.Error(err))
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -87,12 +87,12 @@ func UpdateAgent(w http.ResponseWriter, r *http.Request) {
 func GetAllTestGroups(w http.ResponseWriter, r *http.Request) {
 	testGroups, err := logic.GetAllTestGroups()
 	if err != nil {
-		platform.Logger.Error("Unable to read test groups from db", zap.Error(err))
+		platform.Log.Error("Unable to read test groups from db", zap.Error(err))
 	}
 
 	data, err := json.Marshal(testGroups)
 	if err != nil {
-		platform.Logger.Error("Error while marshalling test groups: ", zap.Error(err))
+		platform.Log.Error("Error while marshalling test groups: ", zap.Error(err))
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -106,7 +106,7 @@ func GetTestGroup(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 
 	if len(id) < 1 {
-		platform.Logger.Error("Must provide valid id when deleting a Test Group")
+		platform.Log.Error("Must provide valid id when deleting a Test Group")
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -122,7 +122,7 @@ func GetTestGroup(w http.ResponseWriter, r *http.Request) {
 
 	data, err := json.Marshal(group)
 	if err != nil {
-		platform.Logger.Error("Error marshalling Test Group for get: ", zap.Error(err))
+		platform.Log.Error("Error marshalling Test Group for get: ", zap.Error(err))
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -136,16 +136,16 @@ func AddTestGroup(w http.ResponseWriter, r *http.Request) {
 
 	data, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		platform.Logger.Error("Unable to read body: ", zap.Error(err))
+		platform.Log.Error("Unable to read body: ", zap.Error(err))
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	platform.Logger.Debug("Request body received: ", zap.String("data", string(data)))
+	platform.Log.Debug("Request body received: ", zap.String("data", string(data)))
 
 	err = json.Unmarshal(data, &group)
 	if err != nil {
-		platform.Logger.Error("AddTestGroup: Unable to unmarshal request: ", zap.Error(err))
+		platform.Log.Error("AddTestGroup: Unable to unmarshal request: ", zap.Error(err))
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -165,17 +165,17 @@ func UpdateTestGroup(w http.ResponseWriter, r *http.Request) {
 
 	data, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		platform.Logger.Error("Unable to read body: ", zap.Error(err))
+		platform.Log.Error("Unable to read body: ", zap.Error(err))
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 	defer r.Body.Close()
 
-	platform.Logger.Debug("Request body received: ", zap.String("data", string(data)))
+	platform.Log.Debug("Request body received: ", zap.String("data", string(data)))
 
 	err = json.Unmarshal(data, &group)
 	if err != nil {
-		platform.Logger.Error("AddTestGroup: Unable to unmarshal request: ", zap.Error(err))
+		platform.Log.Error("AddTestGroup: Unable to unmarshal request: ", zap.Error(err))
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -195,7 +195,7 @@ func DeleteTestGroup(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 
 	if len(id) < 1 {
-		platform.Logger.Error("Must provide valid id when deleting a Test Group", zap.String("id", id))
+		platform.Log.Error("Must provide valid id when deleting a Test Group", zap.String("id", id))
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -214,7 +214,7 @@ func AddTestCollection(w http.ResponseWriter, r *http.Request) {
 
 	data, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		platform.Logger.Error("Error reading request body: ", zap.Error(err))
+		platform.Log.Error("Error reading request body: ", zap.Error(err))
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -222,7 +222,7 @@ func AddTestCollection(w http.ResponseWriter, r *http.Request) {
 
 	err = json.Unmarshal(data, &collection)
 	if err != nil {
-		platform.Logger.Error("AddTestCollection: Unable to unmarshal request: ", zap.Error(err))
+		platform.Log.Error("AddTestCollection: Unable to unmarshal request: ", zap.Error(err))
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -233,7 +233,7 @@ func AddTestCollection(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(err.Error()))
 		return
 	} else if err != nil {
-		platform.Logger.Error("unable to add test collection: ", zap.Error(err))
+		platform.Log.Error("unable to add test collection: ", zap.Error(err))
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -246,7 +246,7 @@ func UpdateTestCollection(w http.ResponseWriter, r *http.Request) {
 
 	data, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		platform.Logger.Error("Error reading request body: ", zap.Error(err))
+		platform.Log.Error("Error reading request body: ", zap.Error(err))
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -254,7 +254,7 @@ func UpdateTestCollection(w http.ResponseWriter, r *http.Request) {
 
 	err = json.Unmarshal(data, &collection)
 	if err != nil {
-		platform.Logger.Error("UpdateTestCollection: Unable to unmarshal request: ", zap.Error(err))
+		platform.Log.Error("UpdateTestCollection: Unable to unmarshal request: ", zap.Error(err))
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -265,7 +265,7 @@ func UpdateTestCollection(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(err.Error()))
 		return
 	} else if err != nil {
-		platform.Logger.Error("unable to add test collection: ", zap.Error(err))
+		platform.Log.Error("unable to add test collection: ", zap.Error(err))
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -278,16 +278,16 @@ func DeleteTestCollection(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 
 	if len(id) < 1 {
-		platform.Logger.Error("Invalid ID sent in path url", zap.String("id", id))
+		platform.Log.Error("Invalid ID sent in path url", zap.String("id", id))
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	platform.Logger.Debug("Id Received: ", zap.String("id", id))
+	platform.Log.Debug("Id Received: ", zap.String("id", id))
 
 	err := logic.DeleteTestCollection(id)
 	if err != nil {
-		platform.Logger.Error("Unable to delete test collection: ", zap.Error(err))
+		platform.Log.Error("Unable to delete test collection: ", zap.Error(err))
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
