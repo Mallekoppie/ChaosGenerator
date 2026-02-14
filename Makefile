@@ -1,4 +1,4 @@
-.PHONY: all master agent client target-http clean proto run-server run-client run-both run-master run-agent run-target-http run-target-http-tls run-target-http-notls run-test-setup stop-all generate-certs
+.PHONY: all master agent client target-http clean proto run-server run-client run-both run-master run-agent run-target-http run-target-http-tls run-target-http-http2 run-target-http-notls run-test-setup stop-all generate-certs
 
 # Build all components
 all: master agent client target-http
@@ -71,7 +71,14 @@ run-target-http-tls: target-http
 	@echo Starting Target HTTP Service with TLS...
 	@if not exist certs\target-http mkdir certs\target-http
 	@if not exist certs\target-http\tls.crt $(MAKE) generate-certs
-	set CHAOS_TARGET_CERT_FILE=certs\target-http\tls.crt && set CHAOS_TARGET_KEY_FILE=certs\target-http\tls.key && .\bin\target-http.exe
+	@powershell -Command "$$env:CHAOS_TARGET_PORT=8443; $$env:CHAOS_TARGET_CERT_FILE='certs\target-http\tls.crt'; $$env:CHAOS_TARGET_KEY_FILE='certs\target-http\tls.key'; & '.\bin\target-http.exe'"
+
+# Run the target-http service with HTTP/2 and TLS (foreground)
+run-target-http-http2: target-http
+	@echo Starting Target HTTP/2 Service with TLS...
+	@if not exist certs\target-http mkdir certs\target-http
+	@if not exist certs\target-http\tls.crt $(MAKE) generate-certs
+	@powershell -Command "$$env:CHAOS_TARGET_PORT=8444; $$env:CHAOS_TARGET_PROTOCOL='http2'; $$env:CHAOS_TARGET_CERT_FILE='certs\target-http\tls.crt'; $$env:CHAOS_TARGET_KEY_FILE='certs\target-http\tls.key'; & '.\bin\target-http.exe'"
 
 # Run the target-http service without TLS (foreground)
 run-target-http-notls: target-http
@@ -98,8 +105,16 @@ generate-certs:
 # Run test setup: master + 2 agents + target-http in background
 run-test-setup: master agent target-http
 	@echo === Starting Test Environment ===
-	@echo Starting Target HTTP Service in background...
+	@if not exist certs\target-http mkdir certs\target-http
+	@if not exist certs\target-http\tls.crt $(MAKE) generate-certs
+	@echo Starting Target HTTP Service (non-TLS) on port 8080 in background...
 	@powershell -Command "Start-Process -FilePath '.\bin\target-http.exe' -WindowStyle Normal"
+	@timeout /t 2 /nobreak >nul
+	@echo Starting Target HTTP Service (TLS) on port 8443 in background...
+	@powershell -NoProfile -Command "$$env:CHAOS_TARGET_PORT=8443; $$env:CHAOS_TARGET_METRICS_PORT=9093; $$env:CHAOS_TARGET_CERT_FILE='certs\target-http\tls.crt'; $$env:CHAOS_TARGET_KEY_FILE='certs\target-http\tls.key'; Start-Process -FilePath '.\bin\target-http.exe'"
+	@timeout /t 2 /nobreak >nul
+	@echo Starting Target HTTP/2 Service (TLS) on port 8444 in background...
+	@powershell -NoProfile -Command "$$env:CHAOS_TARGET_PORT=8444; $$env:CHAOS_TARGET_METRICS_PORT=9094; $$env:CHAOS_TARGET_PROTOCOL='http2'; $$env:CHAOS_TARGET_CERT_FILE='certs\target-http\tls.crt'; $$env:CHAOS_TARGET_KEY_FILE='certs\target-http\tls.key'; Start-Process -FilePath '.\bin\target-http.exe'"
 	@timeout /t 2 /nobreak >nul
 	@echo Starting ChaosMaster server in background...
 	@powershell -Command "Start-Process -FilePath '.\bin\chaos-master.exe' -WindowStyle Normal"
@@ -111,13 +126,18 @@ run-test-setup: master agent target-http
 	@powershell -Command "Start-Process -FilePath '.\bin\chaos-agent.exe' -WindowStyle Normal"
 	@echo.
 	@echo === Test Environment Running ===
-	@echo Target HTTP: Running on localhost:8080
+	@echo Target HTTP (non-TLS): Running on http://localhost:8080
+	@echo Target HTTP (TLS): Running on https://localhost:8443
+	@echo Target HTTP/2 (TLS): Running on https://localhost:8444
 	@echo Master: Running on localhost:9002
 	@echo Agent 1: Connected
 	@echo Agent 2: Connected
 	@echo.
 	@echo Use 'make stop-all' to stop all processes
 	@echo Press Ctrl+C to exit this terminal
+
+temp:
+	@powershell -Command "$$env:CHAOS_TARGET_PORT=8443; $$env:CHAOS_TARGET_METRICS_PORT=9093; $$env:CHAOS_TARGET_CERT_FILE='certs\target-http\tls.crt'; $$env:CHAOS_TARGET_KEY_FILE='certs\target-http\tls.key'; & '.\bin\target-http.exe'"
 
 # Stop all chaos processes
 stop-all:
