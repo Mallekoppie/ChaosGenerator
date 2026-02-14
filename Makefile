@@ -98,9 +98,12 @@ generate-certs:
 	@echo   - tls.crt (certificate)
 	@echo   - tls.key (private key)
 
-# Run test setup: master + 2 agents in background
-run-test-setup: master agent
+# Run test setup: master + 2 agents + target-http in background
+run-test-setup: master agent target-http
 	@echo === Starting Test Environment ===
+	@echo Starting Target HTTP Service in background...
+	@powershell -Command "Start-Process -FilePath '.\bin\target-http.exe' -WindowStyle Normal"
+	@timeout /t 2 /nobreak >nul
 	@echo Starting ChaosMaster server in background...
 	@powershell -Command "Start-Process -FilePath '.\bin\chaos-master.exe' -WindowStyle Normal"
 	@timeout /t 3 /nobreak >nul
@@ -111,6 +114,7 @@ run-test-setup: master agent
 	@powershell -Command "Start-Process -FilePath '.\bin\chaos-agent.exe' -WindowStyle Normal"
 	@echo.
 	@echo === Test Environment Running ===
+	@echo Target HTTP: Running on localhost:8080
 	@echo Master: Running on localhost:9002
 	@echo Agent 1: Connected
 	@echo Agent 2: Connected
@@ -121,5 +125,5 @@ run-test-setup: master agent
 # Stop all chaos processes
 stop-all:
 	@echo Stopping all Chaos processes...
-	@powershell -Command "Get-Process | Where-Object {$$_.ProcessName -like 'chaos-*'} | Stop-Process -Force" 2>nul || echo No processes found
+	@powershell -Command "Get-Process | Where-Object {$$_.ProcessName -like 'chaos-*' -or $$_.ProcessName -like 'target-*'} | Stop-Process -Force" 2>nul || echo No processes found
 	@echo All processes stopped.
