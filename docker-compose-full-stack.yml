@@ -1,0 +1,190 @@
+version: '3.8'
+
+networks:
+  chaos-network:
+    driver: bridge
+
+volumes:
+  chaos-master-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+services:
+  # Chaos Master Server
+  chaos-master:
+    build:
+      context: .
+      dockerfile: build/dockerfile-chaos-master
+    container_name: chaos-master
+    hostname: chaos-master
+    networks:
+      - chaos-network
+    ports:
+      - "9002:9002"
+    volumes:
+      - chaos-master-data:/data
+    environment:
+      - CHAOS_MASTER_PORT=9002
+      - CHAOS_MASTER_DB_PATH=/data/chaos-master.db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sh", "-c", "netstat -an | grep 9002 || nc -z localhost 9002"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Chaos Agent 1
+  chaos-agent-1:
+    build:
+      context: .
+      dockerfile: build/dockerfile-chaos-agent
+    container_name: chaos-agent-1
+    hostname: chaos-agent-1
+    networks:
+      - chaos-network
+    ports:
+      - "9096:9096"
+    environment:
+      - CHAOS_MASTER_ADDRESS=chaos-master:9002
+      - CHAOS_AGENT_PORT=8081
+      - CHAOS_AGENT_METRICS_PORT=9096
+      - CHAOS_AGENT_VERSION=2.0.0
+    depends_on:
+      chaos-master:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Chaos Agent 2
+  chaos-agent-2:
+    build:
+      context: .
+      dockerfile: build/dockerfile-chaos-agent
+    container_name: chaos-agent-2
+    hostname: chaos-agent-2
+    networks:
+      - chaos-network
+    ports:
+      - "9097:9097"
+    environment:
+      - CHAOS_MASTER_ADDRESS=chaos-master:9002
+      - CHAOS_AGENT_PORT=8082
+      - CHAOS_AGENT_METRICS_PORT=9097
+      - CHAOS_AGENT_VERSION=2.0.0
+    depends_on:
+      chaos-master:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Target HTTP Service (non-TLS)
+  target-http:
+    build:
+      context: .
+      dockerfile: build/dockerfile-target-http
+    container_name: target-http
+    hostname: target-http
+    networks:
+      - chaos-network
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    environment:
+      - CHAOS_TARGET_PROTOCOL=http1
+      - CHAOS_TARGET_PORT=8080
+      - CHAOS_TARGET_METRICS_PORT=9090
+    restart: unless-stopped
+
+  # Target HTTP Service (TLS)
+  target-http-tls:
+    build:
+      context: .
+      dockerfile: build/dockerfile-target-http
+    container_name: target-http-tls
+    hostname: target-http-tls
+    networks:
+      - chaos-network
+    ports:
+      - "8443:8443"
+      - "9093:9093"
+    volumes:
+      - ./certs/target-http:/certs:ro
+    environment:
+      - CHAOS_TARGET_PROTOCOL=http1
+      - CHAOS_TARGET_PORT=8443
+      - CHAOS_TARGET_METRICS_PORT=9093
+      - CHAOS_TARGET_CERT_FILE=/certs/tls.crt
+      - CHAOS_TARGET_KEY_FILE=/certs/tls.key
+    restart: unless-stopped
+
+  # Target HTTP/2 Service (TLS)
+  target-http2:
+    build:
+      context: .
+      dockerfile: build/dockerfile-target-http
+    container_name: target-http2
+    hostname: target-http2
+    networks:
+      - chaos-network
+    ports:
+      - "8444:8444"
+      - "9094:9094"
+    volumes:
+      - ./certs/target-http:/certs:ro
+    environment:
+      - CHAOS_TARGET_PROTOCOL=http2
+      - CHAOS_TARGET_PORT=8444
+      - CHAOS_TARGET_METRICS_PORT=9094
+      - CHAOS_TARGET_CERT_FILE=/certs/tls.crt
+      - CHAOS_TARGET_KEY_FILE=/certs/tls.key
+    restart: unless-stopped
+
+  # Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: chaos-prometheus
+    hostname: prometheus
+    networks:
+      - chaos-network
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./monitoring/prometheus-docker.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--storage.tsdb.retention.time=7d'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    depends_on:
+      - target-http
+      - target-http-tls
+      - target-http2
+      - chaos-agent-1
+      - chaos-agent-2
+
+  # Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: chaos-grafana
+    hostname: grafana
+    networks:
+      - chaos-network
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana-docker/provisioning:/etc/grafana/provisioning:ro
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3000
+      - GF_INSTALL_PLUGINS=
+    restart: unless-stopped
+    depends_on:
+      - prometheus

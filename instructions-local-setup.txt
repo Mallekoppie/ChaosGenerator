@@ -1,0 +1,36 @@
+create a make target to run all the components in docker locally. You are taging the make target run-test-setup and duplicating it in docker with monitoring components as well. the existing target contains all the port configurations and parameters.
+
+we need the 3 target-http service types
+
+a chaos server with 2 agents.
+give the agents environment variables to change their metrics ports so that they don't clash with prometheus.
+
+chaos master, agents and target-http docker images can be built using dockerfiles in the build directory
+
+the chaos server must be accessible from the local desktop for the user to run the client to start tests. The client will be run from command prompt by the user. the port mapping for chaos master can be the same as the actual port of the container.
+
+also pull prometheus and grafana images. use existing public images.
+
+prometheus must be configured to scrape the agents and target-http instances.
+scrape interval can be 30s.
+scape all three target services
+scrape both agents.
+use internal dns for target discovery.
+no need to scrape the master. it has no metrics.
+
+granafa must be preconfigured with dashboards to display the metrics.
+all metrics that are available on the agents and target-http instances must be graphed
+create dedicated dashboards for agents and for targets
+then do a dashboard to show the client perspective (agents) and then the service perspective (the targets)
+this tool will be used for load testing a system so we need to see metrics from a client and service perspective to compare them.
+The results will all be documented and screenshots of grafana dashboards will be taken as evidence.
+please infer available metrics freom the code base
+
+all components can be on the same docker network.
+all components should be reachable from the desktop for troubleshooting purposes
+network name can be chaos-network
+
+only chaos master needs a volume. grafana/prometheus can run in memory.
+preserve chaos master volume.
+
+everything must be started from the make run-full-stack target. it must also have a target to shut it all down with stop-full-stack.

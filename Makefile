@@ -1,4 +1,4 @@
-.PHONY: all master agent client target-http clean proto run-server run-client run-both run-master run-agent run-target-http run-target-http-tls run-target-http-http2 run-target-http-notls run-test-setup stop-all generate-certs
+.PHONY: all master agent client target-http clean proto run-server run-client run-both run-master run-agent run-target-http run-target-http-tls run-target-http-http2 run-target-http-notls run-test-setup stop-all generate-certs monitoring-up monitoring-down monitoring-logs run-full-stack docker-build docker-up docker-down docker-logs docker-full-stack stop-full-stack docker-restart
 
 # Build all components
 all: master agent client target-http
@@ -136,11 +136,168 @@ run-test-setup: master agent target-http
 	@echo Use 'make stop-all' to stop all processes
 	@echo Press Ctrl+C to exit this terminal
 
-temp:
-	@powershell -Command "$$env:CHAOS_TARGET_PORT=8443; $$env:CHAOS_TARGET_METRICS_PORT=9093; $$env:CHAOS_TARGET_CERT_FILE='certs\target-http\tls.crt'; $$env:CHAOS_TARGET_KEY_FILE='certs\target-http\tls.key'; & '.\bin\target-http.exe'"
-
 # Stop all chaos processes
 stop-all:
 	@echo Stopping all Chaos processes...
 	@powershell -Command "Get-Process | Where-Object {$$_.ProcessName -like 'chaos-*' -or $$_.ProcessName -like 'target-*'} | Stop-Process -Force" 2>nul || echo No processes found
 	@echo All processes stopped.
+
+# Start Prometheus and Grafana monitoring stack
+monitoring-up:
+	@echo Starting Prometheus and Grafana...
+	@docker-compose -f docker-compose-monitoring.yml up -d
+	@echo.
+	@echo === Monitoring Stack Started ===
+	@echo Prometheus: http://localhost:9091
+	@echo Grafana: http://localhost:3000 (admin/admin)
+	@echo.
+
+# Stop Prometheus and Grafana monitoring stack
+monitoring-down:
+	@echo Stopping monitoring stack...
+	@docker-compose -f docker-compose-monitoring.yml down
+	@echo Monitoring stack stopped.
+
+# View monitoring stack logs
+monitoring-logs:
+	@docker-compose -f docker-compose-monitoring.yml logs -f
+
+# Start full stack: test environment + monitoring
+run-full-stack: master agent target-http
+	@echo === Starting Full Chaos Generator Stack ===
+	@if not exist certs\target-http mkdir certs\target-http
+	@if not exist certs\target-http\tls.crt $(MAKE) generate-certs
+	@echo.
+	@echo [1/4] Starting monitoring stack...
+	@docker-compose -f docker-compose-monitoring.yml up -d
+	@timeout /t 5 /nobreak >nul
+	@echo.
+	@echo [2/4] Starting target HTTP services...
+	@echo   - Target HTTP (non-TLS) on port 8080
+	@powershell -Command "Start-Process -FilePath '.\bin\target-http.exe' -WindowStyle Normal"
+	@timeout /t 2 /nobreak >nul
+	@echo   - Target HTTP (TLS) on port 8443
+	@powershell -NoProfile -Command "$$env:CHAOS_TARGET_PORT=8443; $$env:CHAOS_TARGET_METRICS_PORT=9093; $$env:CHAOS_TARGET_CERT_FILE='certs\target-http\tls.crt'; $$env:CHAOS_TARGET_KEY_FILE='certs\target-http\tls.key'; Start-Process -FilePath '.\bin\target-http.exe'"
+	@timeout /t 2 /nobreak >nul
+	@echo   - Target HTTP/2 (TLS) on port 8444
+	@powershell -NoProfile -Command "$$env:CHAOS_TARGET_PORT=8444; $$env:CHAOS_TARGET_METRICS_PORT=9094; $$env:CHAOS_TARGET_PROTOCOL='http2'; $$env:CHAOS_TARGET_CERT_FILE='certs\target-http\tls.crt'; $$env:CHAOS_TARGET_KEY_FILE='certs\target-http\tls.key'; Start-Process -FilePath '.\bin\target-http.exe'"
+	@timeout /t 2 /nobreak >nul
+	@echo.
+	@echo [3/4] Starting Chaos Master...
+	@powershell -Command "Start-Process -FilePath '.\bin\chaos-master.exe' -WindowStyle Normal"
+	@timeout /t 3 /nobreak >nul
+	@echo.
+	@echo [4/4] Starting Chaos Agents...
+	@echo   - Agent 1 (metrics on port 9096)
+	@powershell -NoProfile -Command "$$env:CHAOS_AGENT_METRICS_PORT=9096; Start-Process -FilePath '.\bin\chaos-agent.exe' -WindowStyle Normal"
+	@timeout /t 2 /nobreak >nul
+	@echo   - Agent 2 (metrics on port 9097)
+	@powershell -NoProfile -Command "$$env:CHAOS_AGENT_METRICS_PORT=9097; Start-Process -FilePath '.\bin\chaos-agent.exe' -WindowStyle Normal"
+	@timeout /t 2 /nobreak >nul
+	@echo.
+	@echo ================================================================
+	@echo === Full Stack Running ===
+	@echo ================================================================
+	@echo.
+	@echo Services:
+	@echo   Target HTTP (non-TLS):  http://localhost:8080 (metrics: 9090)
+	@echo   Target HTTP (TLS):      https://localhost:8443 (metrics: 9093)
+	@echo   Target HTTP/2 (TLS):    https://localhost:8444 (metrics: 9094)
+	@echo   Master:                 localhost:9002
+	@echo   Agent 1:                Connected (metrics: 9096)
+	@echo   Agent 2:                Connected (metrics: 9097)
+	@echo.
+	@echo Monitoring:
+	@echo   Prometheus:             http://localhost:9091
+	@echo   Grafana:                http://localhost:3000 (admin/admin)
+	@echo.
+	@echo Commands:
+	@echo   Stop services:          make stop-all
+	@echo   Stop monitoring:        make monitoring-down
+	@echo   View monitoring logs:   make monitoring-logs
+	@echo.
+	@echo ================================================================
+
+# ================================================================
+# Docker-based Full Stack Targets
+# ================================================================
+
+# Build all Docker images
+docker-build:
+	@echo Building Docker images...
+	@if not exist certs\target-http mkdir certs\target-http
+	@if not exist certs\target-http\tls.crt $(MAKE) generate-certs
+	@docker-compose -f docker-compose-full-stack.yml build
+	@echo Docker images built successfully.
+
+# Start the full Docker stack (all services + monitoring)
+docker-up: docker-build
+	@echo.
+	@echo ================================================================
+	@echo === Starting Full Docker Stack ===
+	@echo ================================================================
+	@echo.
+	@docker-compose -f docker-compose-full-stack.yml up -d
+	@echo.
+	@echo Waiting for services to start...
+	@timeout /t 10 /nobreak >nul
+	@echo.
+	@echo ================================================================
+	@echo === Docker Stack Running ===
+	@echo ================================================================
+	@echo.
+	@echo Services:
+	@echo   Chaos Master:           localhost:9002 (gRPC)
+	@echo   Chaos Agent 1:          metrics on localhost:9096
+	@echo   Chaos Agent 2:          metrics on localhost:9097
+	@echo   Target HTTP (non-TLS):  http://localhost:8080 (metrics: 9090)
+	@echo   Target HTTP (TLS):      https://localhost:8443 (metrics: 9093)
+	@echo   Target HTTP/2 (TLS):    https://localhost:8444 (metrics: 9094)
+	@echo.
+	@echo Monitoring:
+	@echo   Prometheus:             http://localhost:9091
+	@echo   Grafana:                http://localhost:3000 (admin/admin)
+	@echo.
+	@echo Grafana Dashboards:
+	@echo   - Chaos Agents Dashboard
+	@echo   - Chaos Target Services Dashboard
+	@echo   - Client Perspective - Load Testing
+	@echo   - Service Perspective - Load Testing
+	@echo.
+	@echo Commands:
+	@echo   View logs:              make docker-logs
+	@echo   Stop stack:             make docker-down
+	@echo   Restart stack:          make docker-restart
+	@echo.
+	@echo To run the client from your terminal:
+	@echo   make run-client
+	@echo.
+	@echo ================================================================
+
+# Stop the full Docker stack
+docker-down:
+	@echo Stopping Docker stack...
+	@docker-compose -f docker-compose-full-stack.yml down
+	@echo Docker stack stopped.
+
+# Stop and remove all containers, networks, and images
+stop-full-stack:
+	@echo Stopping and cleaning up Docker stack...
+	@docker-compose -f docker-compose-full-stack.yml down
+	@echo.
+	@echo Note: Chaos Master database volume is preserved.
+	@echo To remove all volumes (including DB), run: docker-compose -f docker-compose-full-stack.yml down -v
+	@echo Docker stack stopped and cleaned up.
+
+# View Docker stack logs
+docker-logs:
+	@docker-compose -f docker-compose-full-stack.yml logs -f
+
+# Restart the Docker stack
+docker-restart:
+	@echo Restarting Docker stack...
+	@docker-compose -f docker-compose-full-stack.yml restart
+	@echo Docker stack restarted.
+
+# Alias for docker-up (follows naming convention from instructions)
+docker-full-stack: docker-up
