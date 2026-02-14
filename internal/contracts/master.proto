@@ -6,6 +6,8 @@ option go_package = "mallekoppie/ChaosGenerator/internal/contracts";
 
 service ChaosMaster {
     // Agent operations
+    rpc RegisterAgent(RegisterAgentRequest) returns (RegisterAgentResponse) {}
+    rpc ConnectAgent(stream AgentMessage) returns (stream AgentCommand) {}
     rpc GetAllAgents(GetAllAgentsRequest) returns (GetAllAgentsResponse) {}
     rpc UpdateAgent(UpdateAgentRequest) returns (UpdateAgentResponse) {}
     rpc DeleteAgent(DeleteAgentRequest) returns (DeleteAgentResponse) {}
@@ -53,6 +55,115 @@ message DeleteAgentRequest {
 
 message DeleteAgentResponse {
     bool success = 1;
+}
+
+message RegisterAgentRequest {
+    string hostname = 1;
+    int32 port = 2;
+    int32 metricsPort = 3;
+    string version = 4;
+}
+
+message RegisterAgentResponse {
+    string agentId = 1;
+    bool success = 2;
+    string message = 3;
+}
+
+// Agent streaming messages
+message AgentMessage {
+    string agentId = 1;
+    oneof payload {
+        AgentHeartbeat heartbeat = 2;
+        CommandResponse response = 3;
+    }
+}
+
+message AgentHeartbeat {
+    int64 timestamp = 1;
+}
+
+message AgentCommand {
+    string commandId = 1;
+    oneof command {
+        AddTestsCommand addTests = 2;
+        StartTestCommand startTest = 3;
+        StopTestCommand stopTest = 4;
+        UpdateTestCommand updateTest = 5;
+        GetStatusCommand getStatus = 6;
+        GetVersionCommand getVersion = 7;
+        DeleteTestsCommand deleteTests = 8;
+        HealthCheckCommand healthCheck = 9;
+    }
+}
+
+message AddTestsCommand {
+    string name = 1;
+    repeated AgentTest tests = 2;
+}
+
+message StartTestCommand {
+    string testCollectionName = 1;
+    int32 simulatedUsers = 2;
+}
+
+message StopTestCommand {
+    string testName = 1;
+}
+
+message UpdateTestCommand {
+    string testCollectionName = 1;
+    int32 simulatedUsers = 2;
+}
+
+message GetStatusCommand {}
+
+message GetVersionCommand {}
+
+message DeleteTestsCommand {}
+
+message HealthCheckCommand {}
+
+message CommandResponse {
+    string commandId = 1;
+    bool success = 2;
+    string error = 3;
+    oneof result {
+        TestStatusResult statusResult = 4;
+        VersionResult versionResult = 5;
+    }
+}
+
+message TestStatusResult {
+    string testCollectionName = 1;
+    int64 requestsExecuted = 2;
+    int64 transactionsPerSecond = 3;
+    int64 averageExecutionTime = 4;
+    double cpu = 5;
+    int32 simulatedUsers = 6;
+    int64 errorsPerSecond = 7;
+    int32 errorsRaised = 8;
+    int64 executionTime = 9;
+}
+
+message VersionResult {
+    string version = 1;
+    string hostname = 2;
+}
+
+message AgentTest {
+    string name = 1;
+    string method = 2;
+    string url = 3;
+    string body = 4;
+    repeated AgentHeader headers = 5;
+    int32 responseCode = 6;
+    string responseBody = 7;
+}
+
+message AgentHeader {
+    string name = 1;
+    string value = 2;
 }
 
 // TestGroup messages

@@ -1,254 +1,284 @@
 package manager
 
 import (
-	"context"
 	"errors"
-	"fmt"
 	"log"
 
+	"github.com/google/uuid"
 	"github.com/tkanos/gonfig"
 
 	pb "mallekoppie/ChaosGenerator/internal/contracts"
-
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-
-	"mallekoppie/ChaosGenerator/internal/master/repositories"
+	"mallekoppie/ChaosGenerator/internal/master/service"
 
 	"github.com/Mallekoppie/goslow/platform"
 	"go.uber.org/zap"
 )
 
 var (
-	agents                 []ChaosAgent
 	ErrorNoAgentWithThatId = errors.New("No agent with that Id")
+	ErrorAgentNotConnected = errors.New("Agent not connected")
 )
 
-const (
-	consulAgentServiceName string = "ChaosAgent"
-)
+// GetAllConnectedAgents returns all agents that are currently connected
+func GetAllConnectedAgents() []string {
+	cm := service.GetConnectionManager()
+	conns := cm.GetAllConnections()
 
-type ChaosAgent struct {
-	Id     string
-	Name   string `json:"name"`
-	Url    string `json:"url"`
-	Client pb.ChaosAgentClient
-	Ctx    context.Context
-}
-
-func init() {
-	initializeAgents()
-}
-
-func getAgents() []ChaosAgent {
-	if len(agents) < 1 {
-		platform.Log.Info("No agents. Re-initializing")
-		initializeAgents()
+	agentIds := make([]string, len(conns))
+	for i, conn := range conns {
+		agentIds[i] = conn.AgentId
 	}
 
-	return agents
+	return agentIds
 }
 
-func initializeAgents() {
-	err := GetChaosMasterAgents()
-
-	if err != nil {
-		fmt.Println("Error retrieving config: ", err)
-		return
-	}
-
-	platform.Log.Info("Initializing agents")
-	for i := range agents {
-		err := agents[i].Init()
-		if err != nil {
-			platform.Log.Error("Unable to initialize agent", zap.Error(err))
-		}
-	}
-	count := len(agents)
-	platform.Log.Info("Config count during initialization", zap.Int("count", count))
-	platform.Log.Info("Initialized agents")
+// IsAgentConnected checks if an agent is currently connected
+func IsAgentConnected(agentId string) bool {
+	cm := service.GetConnectionManager()
+	_, ok := cm.GetConnection(agentId)
+	return ok
 }
 
-func GetChaosMasterAgents() error {
-	agents = make([]ChaosAgent, 0)
-	consulAgents, err := repositories.GetAllAgents(consulAgentServiceName)
-	if err != nil {
-		platform.Log.Error("Unable to get agent configuration", zap.Error(err))
-		return err
-	}
-
-	for index := range consulAgents {
-		agent := consulAgents[index]
-		c := ChaosAgent{
-			Id:   agent.Id,
-			Name: agent.Host,
-			Url:  fmt.Sprintf("%v:%v", agent.Host, agent.Port),
-		}
-		agents = append(agents, c)
-	}
-
-	return nil
-}
-
-func GetAgent(id string) (agent ChaosAgent, err error) {
-	nulAgent := ChaosAgent{}
-
-	agents := getAgents()
-	number := len(agents)
-	platform.Log.Info("Number of agents returned", zap.Int("agent_number", number))
-
-	for i := range agents {
-		log.Println("inside loop")
-		log.Printf("Comparing %v to %v", agents[i].Id, id)
-		if agents[i].Id == id {
-			platform.Log.Debug("Agent Found")
-			return agents[i], nil
-		}
-	}
-
-	return nulAgent, ErrorNoAgentWithThatId
-}
-
-func GetTest(testName string) (pb.TestCollection, error) {
-	configuration := pb.TestCollection{}
-	err := gonfig.GetConf("./tests/"+testName+".json", &configuration)
+func GetTest(testName string) (*pb.TestCollection, error) {
+	configuration := &pb.TestCollection{}
+	err := gonfig.GetConf("./tests/"+testName+".json", configuration)
 
 	if err != nil {
 		log.Printf("Error reading config: %v", err)
-		return configuration, err
+		return nil, err
 	}
 
 	return configuration, nil
 }
 
-func (c *ChaosAgent) Init() error {
-	creds, err := credentials.NewClientTLSFromFile("./chaos_agent.cer", "chaos-agent")
+// SendAddTestsCommand sends add tests command to an agent
+func SendAddTestsCommand(agentId string, testCollection *pb.TestCollection) error {
+	if !IsAgentConnected(agentId) {
+		return ErrorAgentNotConnected
+	}
+
+	cm := service.GetConnectionManager()
+
+	// Convert TestCollection to AddTestsCommand format
+	tests := make([]*pb.AgentTest, len(testCollection.Tests))
+	for i, test := range testCollection.Tests {
+		headers := make([]*pb.AgentHeader, len(test.Headers))
+		for j, header := range test.Headers {
+			headers[j] = &pb.AgentHeader{
+				Name:  header.Name,
+				Value: header.Value,
+			}
+		}
+		tests[i] = &pb.AgentTest{
+			Name:         test.Name,
+			Method:       test.Method,
+			Url:          test.Url,
+			Body:         test.Body,
+			Headers:      headers,
+			ResponseCode: test.ResponseCode,
+			ResponseBody: test.ResponseBody,
+		}
+	}
+
+	command := &pb.AgentCommand{
+		CommandId: uuid.New().String(),
+		Command: &pb.AgentCommand_AddTests{
+			AddTests: &pb.AddTestsCommand{
+				Name:  testCollection.Name,
+				Tests: tests,
+			},
+		},
+	}
+
+	_, err := cm.SendCommand(agentId, command)
 	if err != nil {
-		log.Println("Error reading certificate: ", err.Error())
+		platform.Log.Error("Error sending AddTests command", zap.String("agentId", agentId), zap.Error(err))
 		return err
 	}
 
-	//conn, err := grpc.Dial(c.Url, grpc.WithTransportCredentials(creds))
-	conn, err := grpc.Dial(c.Url, grpc.WithTransportCredentials(creds))
-	if err != nil {
-		log.Printf("Unable to connect to %v. Error: %v", c.Url, err.Error())
-		return err
-	}
-	log.Println("Connection state: ", conn.GetState().String())
-
-	c.Client = pb.NewChaosAgentClient(conn)
-	c.Ctx = context.TODO()
-
-	resp, err := c.Client.GetVersion(c.Ctx, &pb.Request{})
-	if err != nil {
-		log.Printf("Error during version check to %s. Error: %s", c.Url, err.Error())
-		return err
-	}
-
-	log.Printf("%v is online with version %v", c.Url, resp.GetVersion())
-
+	platform.Log.Info("AddTests command sent", zap.String("agentId", agentId))
 	return nil
 }
 
-func (c *ChaosAgent) GetStatus() (pb.TestStatus, error) {
+// SendStartTestCommand sends start test command to an agent
+func SendStartTestCommand(agentId string, testCollectionName string, simulatedUsers int32) error {
+	if !IsAgentConnected(agentId) {
+		return ErrorAgentNotConnected
+	}
 
-	status, err := c.Client.GetTestStatus(c.Ctx, &pb.Request{})
+	cm := service.GetConnectionManager()
 
+	command := &pb.AgentCommand{
+		CommandId: uuid.New().String(),
+		Command: &pb.AgentCommand_StartTest{
+			StartTest: &pb.StartTestCommand{
+				TestCollectionName: testCollectionName,
+				SimulatedUsers:     simulatedUsers,
+			},
+		},
+	}
+
+	_, err := cm.SendCommand(agentId, command)
 	if err != nil {
-		//fmt.Println("Error calling service: ", err)
-		return *status, err
-	} else {
-		return *status, nil
+		platform.Log.Error("Error sending StartTest command", zap.String("agentId", agentId), zap.Error(err))
+		return err
 	}
 
+	platform.Log.Info("StartTest command sent", zap.String("agentId", agentId))
+	return nil
 }
 
-func (c *ChaosAgent) IsAlive() bool {
-	response, err := c.Client.IsAlive(c.Ctx, &pb.Request{})
+// SendStopTestCommand sends stop test command to an agent
+func SendStopTestCommand(agentId string, testName string) error {
+	if !IsAgentConnected(agentId) {
+		return ErrorAgentNotConnected
+	}
 
+	cm := service.GetConnectionManager()
+
+	command := &pb.AgentCommand{
+		CommandId: uuid.New().String(),
+		Command: &pb.AgentCommand_StopTest{
+			StopTest: &pb.StopTestCommand{
+				TestName: testName,
+			},
+		},
+	}
+
+	_, err := cm.SendCommand(agentId, command)
 	if err != nil {
-		//fmt.Printf("Error checking if %v is alive. Error: %v", c.Name, err)
-		return false
-	} else if response != nil && response.Result == true {
-		return true
+		platform.Log.Error("Error sending StopTest command", zap.String("agentId", agentId), zap.Error(err))
+		return err
 	}
 
-	return false
-
+	platform.Log.Info("StopTest command sent", zap.String("agentId", agentId))
+	return nil
 }
 
-func (c *ChaosAgent) AddTest(test pb.TestCollection) {
-	resp, err := c.Client.AddTests(c.Ctx, &test)
+// SendUpdateTestCommand sends update test command to an agent
+func SendUpdateTestCommand(agentId string, testCollectionName string, simulatedUsers int32) error {
+	if !IsAgentConnected(agentId) {
+		return ErrorAgentNotConnected
+	}
 
+	cm := service.GetConnectionManager()
+
+	command := &pb.AgentCommand{
+		CommandId: uuid.New().String(),
+		Command: &pb.AgentCommand_UpdateTest{
+			UpdateTest: &pb.UpdateTestCommand{
+				TestCollectionName: testCollectionName,
+				SimulatedUsers:     simulatedUsers,
+			},
+		},
+	}
+
+	_, err := cm.SendCommand(agentId, command)
 	if err != nil {
-		fmt.Printf("Error adding test to %v . Error: %v", c.Name, err)
-		return
+		platform.Log.Error("Error sending UpdateTest command", zap.String("agentId", agentId), zap.Error(err))
+		return err
 	}
 
-	if resp != nil && resp.Result != true {
-		fmt.Printf("Error adding test for %v . Result: %v", c.Name, resp.Result)
-	}
+	platform.Log.Info("UpdateTest command sent", zap.String("agentId", agentId))
+	return nil
 }
 
-func (c *ChaosAgent) StartTest(testParameters pb.TestParameters) {
-	resp, err := c.Client.StartTestRun(c.Ctx, &testParameters)
+// SendGetStatusCommand sends get status command to an agent
+func SendGetStatusCommand(agentId string) error {
+	if !IsAgentConnected(agentId) {
+		return ErrorAgentNotConnected
+	}
 
+	cm := service.GetConnectionManager()
+
+	command := &pb.AgentCommand{
+		CommandId: uuid.New().String(),
+		Command: &pb.AgentCommand_GetStatus{
+			GetStatus: &pb.GetStatusCommand{},
+		},
+	}
+
+	_, err := cm.SendCommand(agentId, command)
 	if err != nil {
-		fmt.Printf("Error starting test to %v . Error: %v", c.Name, err)
+		platform.Log.Error("Error sending GetStatus command", zap.String("agentId", agentId), zap.Error(err))
+		return err
 	}
 
-	if resp != nil && resp.Result != true {
-		fmt.Printf("Error starting test for %v . Result: %v", c.Name, resp.Result)
-	}
+	platform.Log.Info("GetStatus command sent", zap.String("agentId", agentId))
+	return nil
 }
 
-func (c *ChaosAgent) UpdateTest(testParameters pb.TestParameters) {
-	resp, err := c.Client.UpdateTestRun(c.Ctx, &testParameters)
+// SendGetVersionCommand sends get version command to an agent
+func SendGetVersionCommand(agentId string) error {
+	if !IsAgentConnected(agentId) {
+		return ErrorAgentNotConnected
+	}
 
+	cm := service.GetConnectionManager()
+
+	command := &pb.AgentCommand{
+		CommandId: uuid.New().String(),
+		Command: &pb.AgentCommand_GetVersion{
+			GetVersion: &pb.GetVersionCommand{},
+		},
+	}
+
+	_, err := cm.SendCommand(agentId, command)
 	if err != nil {
-		fmt.Printf("Error updating test to %v . Error: %v", c.Name, err)
+		platform.Log.Error("Error sending GetVersion command", zap.String("agentId", agentId), zap.Error(err))
+		return err
 	}
 
-	if resp != nil && resp.Result != true {
-		fmt.Printf("Error updating test for %v . Result: %v", c.Name, resp.Result)
-	}
+	platform.Log.Info("GetVersion command sent", zap.String("agentId", agentId))
+	return nil
 }
 
-func (c *ChaosAgent) StopTest() {
-	if c != nil && c.Client != nil {
-		resp, err := c.Client.StopTestRun(c.Ctx, &pb.StopTestRequest{})
-
-		if err != nil {
-			fmt.Printf("Error stopping test to %v . Error: %v", c.Name, err)
-		}
-
-		if resp != nil && resp.Result != true {
-			fmt.Printf("Error stopping test for %v . Result: %v", c.Name, resp.Result)
-		}
+// SendDeleteTestsCommand sends delete tests command to an agent
+func SendDeleteTestsCommand(agentId string) error {
+	if !IsAgentConnected(agentId) {
+		return ErrorAgentNotConnected
 	}
-}
 
-func (c *ChaosAgent) GetVersion() (pb.GetVersionResponse, error) {
+	cm := service.GetConnectionManager()
 
-	version, err := c.Client.GetVersion(c.Ctx, &pb.Request{})
+	command := &pb.AgentCommand{
+		CommandId: uuid.New().String(),
+		Command: &pb.AgentCommand_DeleteTests{
+			DeleteTests: &pb.DeleteTestsCommand{},
+		},
+	}
 
+	_, err := cm.SendCommand(agentId, command)
 	if err != nil {
-		return *version, err
-	} else {
-		return *version, nil
+		platform.Log.Error("Error sending DeleteTests command", zap.String("agentId", agentId), zap.Error(err))
+		return err
 	}
+
+	platform.Log.Info("DeleteTests command sent", zap.String("agentId", agentId))
+	return nil
 }
 
-func (c *ChaosAgent) DeleteTests() {
-	_, err := c.Client.DeleteTests(c.Ctx, &pb.DeleteTestsRequest{})
+// SendHealthCheckCommand sends health check command to an agent
+func SendHealthCheckCommand(agentId string) error {
+	if !IsAgentConnected(agentId) {
+		return ErrorAgentNotConnected
+	}
+
+	cm := service.GetConnectionManager()
+
+	command := &pb.AgentCommand{
+		CommandId: uuid.New().String(),
+		Command: &pb.AgentCommand_HealthCheck{
+			HealthCheck: &pb.HealthCheckCommand{},
+		},
+	}
+
+	_, err := cm.SendCommand(agentId, command)
 	if err != nil {
-		fmt.Printf("Agent %v encountered error while deleting tests directory: %v", c.Url, err.Error())
-		return
+		platform.Log.Error("Error sending HealthCheck command", zap.String("agentId", agentId), zap.Error(err))
+		return err
 	}
 
-	fmt.Println("Tests cleared on agent: ", c.Url)
-}
-
-func (c *ChaosAgent) Shutdown() {
-
+	platform.Log.Info("HealthCheck command sent", zap.String("agentId", agentId))
+	return nil
 }

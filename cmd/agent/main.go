@@ -10,66 +10,77 @@
 package main
 
 import (
+	"context"
 	"log"
-	"net"
+	"os"
+	"os/signal"
+	"syscall"
 
-	"mallekoppie/ChaosGenerator/internal/agent/service"
-
-	"github.com/tkanos/gonfig"
-
-	pb "mallekoppie/ChaosGenerator/internal/contracts"
-
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/reflection"
+	"mallekoppie/ChaosGenerator/internal/agent"
 )
 
-func GetConfig() (ChaosAgentConfig, error) {
-	configuration := ChaosAgentConfig{}
-	err := gonfig.GetConf("ChaosAgentConfig.json", &configuration)
+// getEnv retrieves an environment variable or returns a default value
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
 
-	if err != nil {
-		log.Print("Error reading config file ChaosAgentConfig.json: %v", err)
-		return configuration, err
+func GetConfig() ChaosAgentConfig {
+	// Read from environment variables with local development defaults
+	configuration := ChaosAgentConfig{
+		Port:          getEnv("CHAOS_AGENT_PORT", "9001"),
+		MetricsPort:   getEnv("CHAOS_AGENT_METRICS_PORT", "9091"),
+		MasterAddress: getEnv("CHAOS_MASTER_ADDRESS", "localhost:9002"),
+		Version:       getEnv("CHAOS_AGENT_VERSION", "2.0.0"),
 	}
 
-	return configuration, nil
+	log.Printf("Configuration loaded:")
+	log.Printf("  Port: %s", configuration.Port)
+	log.Printf("  Metrics Port: %s", configuration.MetricsPort)
+	log.Printf("  Master Address: %s", configuration.MasterAddress)
+	log.Printf("  Version: %s", configuration.Version)
+
+	return configuration
 }
 
 func main() {
+	config := GetConfig()
 
-	config, configErr := GetConfig()
+	log.Println("Chaos Agent starting...")
+	log.Printf("Master address: %s", config.MasterAddress)
 
-	if configErr != nil {
-		log.Println("Unable to read config: ", configErr)
-
-		return
-	}
-
-	log.Printf("Server started on Port: " + config.Port)
-
-	listener, err := net.Listen("tcp", "0.0.0.0:"+config.Port)
+	// Register with master and get agent ID
+	agentId, err := agent.RegisterWithMaster(config.MasterAddress, config.Port, config.MetricsPort, config.Version)
 	if err != nil {
-		log.Println("Unable to listen on port: ", err.Error())
+		log.Printf("Failed to register with master: %v", err)
 		return
 	}
 
-	creds, err := credentials.NewServerTLSFromFile("./chaos_agent.cer", "./chaos_agent.pkcs8")
-	if err != nil {
-		log.Println("Unable to load key pair: ", err.Error())
+	log.Printf("Registered with master. Agent ID: %s", agentId)
+
+	// Create agent client
+	client := agent.NewClient(config.MasterAddress, agentId)
+
+	// Create context that can be cancelled
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Connect to master and start listening for commands
+	if err := client.Connect(ctx); err != nil {
+		log.Printf("Failed to connect to master: %v", err)
 		return
 	}
+	defer client.Close()
 
-	server := grpc.NewServer(grpc.Creds(creds))
+	log.Println("Agent connected and listening for commands...")
 
-	pb.RegisterChaosAgentServer(server, &service.Service{})
+	// Wait for interrupt signal
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	<-sigChan
 
-	reflection.Register(server)
-
-	log.Println("Server listening address: ", config.Port)
-
-	if err = server.Serve(listener); err != nil {
-		log.Fatalln("Failed to server: ", err.Error())
-	}
-
+	log.Println("Shutting down agent...")
+	cancel()
 }

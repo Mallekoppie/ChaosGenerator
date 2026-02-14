@@ -8,6 +8,10 @@ import (
 	"go.uber.org/zap"
 
 	"errors"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -69,6 +73,36 @@ func DeleteAgent(agent models.Agent) error {
 	platform.Log.Debug("Agent deleted")
 	return nil
 
+}
+
+func RegisterAgent(hostname string, port int, metricsPort int, version string) (string, error) {
+	platform.Log.Info("Registering new agent",
+		zap.String("hostname", hostname),
+		zap.Int("port", port),
+		zap.String("version", version))
+
+	// Generate unique agent ID
+	agentId := uuid.New().String()
+
+	// Create agent model with initial status
+	agent := models.Agent{
+		Id:          agentId,
+		Host:        hostname,
+		Port:        port,
+		MetricsPort: metricsPort,
+		Enabled:     true,
+		Status:      fmt.Sprintf("Connected at %s (version: %s)", time.Now().Format(time.RFC3339), version),
+	}
+
+	// Save agent to repository
+	err := repositories.UpdateAgent(agent)
+	if err != nil {
+		platform.Log.Error("Unable to register agent in database", zap.Error(err))
+		return "", err
+	}
+
+	platform.Log.Info("Agent registered successfully", zap.String("agentId", agentId))
+	return agentId, nil
 }
 
 func GetAllTestGroups() (tests []models.TestGroup, err error) {

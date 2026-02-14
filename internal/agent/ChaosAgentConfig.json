@@ -1,1 +1,13 @@
-{"port":"9001"}
+{
+  "_comment": "This file is for reference only. Agent reads from environment variables.",
+  "_env_vars": {
+    "CHAOS_AGENT_PORT": "Port for agent metrics (default: 9001)",
+    "CHAOS_AGENT_METRICS_PORT": "Metrics port (default: 9091)",
+    "CHAOS_MASTER_ADDRESS": "Master server address (default: localhost:9002)",
+    "CHAOS_AGENT_VERSION": "Agent version (default: 2.0.0)"
+  },
+  "port": "9001",
+  "metricsPort": "9091",
+  "masterAddress": "localhost:9002",
+  "version": "2.0.0"
+}

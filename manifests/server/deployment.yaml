@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chaos-master
+  labels:
+    app: chaos-master
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chaos-master
+  template:
+    metadata:
+      labels:
+        app: chaos-master
+    spec:
+      containers:
+      - name: chaos-master
+        image: your-registry/chaos-master:latest
+        ports:
+        - containerPort: 9002
+          name: grpc
+          protocol: TCP
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          tcpSocket:
+            port: 9002
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          tcpSocket:
+            port: 9002
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        volumeMounts:
+        - name: data
+          mountPath: /data
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: chaos-master-pvc

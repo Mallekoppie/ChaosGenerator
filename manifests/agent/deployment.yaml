@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chaos-agent
+  labels:
+    app: chaos-agent
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: chaos-agent
+  template:
+    metadata:
+      labels:
+        app: chaos-agent
+    spec:
+      containers:
+      - name: chaos-agent
+        image: your-registry/chaos-agent:latest
+        env:
+        # Master server address (required in k8s)
+        - name: CHAOS_MASTER_ADDRESS
+          value: "chaos-master-service:9002"
+        
+        # Agent port (optional, default: 9001)
+        - name: CHAOS_AGENT_PORT
+          value: "9001"
+        
+        # Metrics port (optional, default: 9091)
+        - name: CHAOS_AGENT_METRICS_PORT
+          value: "9091"
+        
+        # Agent version (optional, default: 2.0.0)
+        - name: CHAOS_AGENT_VERSION
+          value: "2.0.0"
+        
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        
+        # Liveness probe to ensure agent is running
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "pgrep chaos-agent"
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        
+        # Readiness probe (agent is ready after connecting to master)
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "pgrep chaos-agent"
+          initialDelaySeconds: 5
+          periodSeconds: 10

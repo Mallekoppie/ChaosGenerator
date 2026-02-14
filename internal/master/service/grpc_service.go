@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"mallekoppie/ChaosGenerator/internal/contracts"
 	"mallekoppie/ChaosGenerator/internal/master/logic"
 	"mallekoppie/ChaosGenerator/internal/master/models"
@@ -11,6 +12,11 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+)
+
+var (
+	ErrAgentNotConnected = errors.New("agent not connected")
+	ErrInvalidAgentId    = errors.New("invalid agent ID")
 )
 
 type ChaosMasterServer struct {
@@ -71,6 +77,36 @@ func (s *ChaosMasterServer) DeleteAgent(ctx context.Context, req *contracts.Dele
 	}
 
 	return &contracts.DeleteAgentResponse{Success: true}, nil
+}
+
+func (s *ChaosMasterServer) RegisterAgent(ctx context.Context, req *contracts.RegisterAgentRequest) (*contracts.RegisterAgentResponse, error) {
+	platform.Log.Info("Received RegisterAgent request",
+		zap.String("hostname", req.Hostname),
+		zap.Int32("port", req.Port),
+		zap.String("version", req.Version))
+
+	if req.Hostname == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "hostname is required")
+	}
+	if req.Port <= 0 {
+		return nil, status.Errorf(codes.InvalidArgument, "valid port is required")
+	}
+
+	agentId, err := logic.RegisterAgent(req.Hostname, int(req.Port), int(req.MetricsPort), req.Version)
+	if err != nil {
+		platform.Log.Error("Error registering agent", zap.Error(err))
+		return &contracts.RegisterAgentResponse{
+			Success: false,
+			Message: err.Error(),
+		}, nil
+	}
+
+	platform.Log.Info("Agent registered successfully", zap.String("agentId", agentId))
+	return &contracts.RegisterAgentResponse{
+		AgentId: agentId,
+		Success: true,
+		Message: "Agent registered successfully",
+	}, nil
 }
 
 // TestGroup operations

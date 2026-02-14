@@ -41,3 +41,6 @@ UI/node_modules/*
 cmd/master/chaos_master.db.lock
 internal/master/repositories/database.db
 cmd/master/chaos_master.db
+bin/chaos-client.exe~
+chaos_master.db
+chaos_master.db.lock
