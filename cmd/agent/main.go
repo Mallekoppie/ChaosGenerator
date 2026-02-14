@@ -67,6 +67,12 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Start metrics server
+	if err := agent.StartMetricsServer(ctx, config.MetricsPort); err != nil {
+		log.Printf("Failed to start metrics server: %v", err)
+		return
+	}
+
 	// Connect to master and start listening for commands
 	if err := client.Connect(ctx); err != nil {
 		log.Printf("Failed to connect to master: %v", err)
