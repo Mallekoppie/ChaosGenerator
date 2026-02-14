@@ -11,7 +11,9 @@ import (
 	status "google.golang.org/grpc/status"
 )
 
-type Service struct{}
+type Service struct {
+	pb.UnimplementedChaosAgentServer
+}
 
 func (*Service) AddTests(ctx context.Context, req *pb.TestCollection) (*pb.Response, error) {
 	core.WriteTestConfiguration(*req)

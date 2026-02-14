@@ -24,6 +24,7 @@ ChaosMaster/conversions
 ChaosAgent/simple.json
 .vs/
 chaos.pb.go
+chaos_grpc.pb.go
 
 ChaosAgent/tests/
 chaos-master-web/package-lock.json
