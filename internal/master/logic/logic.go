@@ -183,3 +183,78 @@ func DeleteTestCollection(id string) error {
 	err := repositories.DeleteTestCollection(id)
 	return err
 }
+
+// Target management
+
+func RegisterTarget(target models.Target) (string, error) {
+	platform.Log.Info("Registering new target",
+		zap.String("name", target.Name),
+		zap.String("address", target.Address),
+		zap.String("serviceType", target.ServiceType))
+
+	// Generate unique target ID if not provided
+	if target.ID == "" {
+		target.ID = uuid.New().String()
+	}
+
+	// Save target to repository
+	err := repositories.AddTarget(target)
+	if err != nil {
+		platform.Log.Error("Unable to register target in database", zap.Error(err))
+		return "", err
+	}
+
+	platform.Log.Info("Target registered successfully", zap.String("targetId", target.ID))
+	return target.ID, nil
+}
+
+func UpdateTarget(target models.Target) error {
+	platform.Log.Info("Updating target", zap.String("id", target.ID))
+
+	err := repositories.UpdateTarget(target)
+	if err != nil {
+		platform.Log.Error("Unable to update target", zap.Error(err))
+		return err
+	}
+
+	platform.Log.Info("Target updated successfully")
+	return nil
+}
+
+func DeleteTarget(id string) error {
+	platform.Log.Info("Deleting target", zap.String("id", id))
+
+	err := repositories.DeleteTarget(id)
+	if err != nil {
+		platform.Log.Error("Unable to delete target", zap.Error(err))
+		return err
+	}
+
+	platform.Log.Debug("Target deleted")
+	return nil
+}
+
+func GetAllTargets() ([]models.Target, error) {
+	platform.Log.Info("Getting all targets")
+
+	targets, err := repositories.GetAllTargets()
+	if err != nil {
+		platform.Log.Error("Unable to get targets", zap.Error(err))
+		return nil, err
+	}
+
+	platform.Log.Info("Returning targets successfully")
+	return targets, nil
+}
+
+func GetTarget(id string) (models.Target, error) {
+	platform.Log.Info("Getting target", zap.String("id", id))
+
+	target, err := repositories.GetTarget(id)
+	if err != nil {
+		platform.Log.Error("Unable to get target", zap.Error(err))
+		return models.Target{}, err
+	}
+
+	return target, nil
+}

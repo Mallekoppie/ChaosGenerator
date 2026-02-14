@@ -1,0 +1,73 @@
+We need to create target services against which the tests will be executed.
+In total we will have 3 services which focus on 3 protocols:
+http/1.1
+http/2
+grpc
+
+We will start with the http/1.1 and http/2 implementation to ensure it works end to end before implementing grpc.
+
+lets start with the http implementations since they can use the same internals. we will configure it on startup to only run hhttp/1.1 or http/2.
+
+the internals must be created in internal/target-http.
+
+create cmd/target-http to start the server which references internal/target-http.
+
+create a build directory with dockerfiles for:
+dockerfile-target-http
+dockerfile-target-grpc
+dockerfile-chaos-master
+dockerfile-chaos-agent
+
+the use cases are documented in instructions-use-cases.txt.
+
+The target service must implement prometheus metrics for every use case. This is so that we can display the test run on a grafana dashboard. Each use case must be mapped to a path and the path can be the name of the use case. no need to stick to restull semantics. Use case name with dashes for example use-case-name. 
+
+endpoint naming must be descriptive. the target service must respect the method in the use cases.
+
+the target service should read environment variables on startup for protocol, port and metrics port. Please implement defaults for when the environment variables are not available.
+
+The target service must check environment variables for certificates. If they are not there then it does not enable tls. If they are there they should be referenced.
+
+create a make target to generate certs for the target service. There should be 2 targets for the target service. one for tls and one for non tls.
+
+manifest/target-http should be created for the eventual deployment into a k8s cluster.
+
+The master server must contain configuration for all the use-cases. we must be able to select a use-case to test and then trigger the agents that are connected to run the use-case.
+
+the server implementation will be updated to not be configurable and only support the documented use cases. the configuration that we can do will be for the remote service location and connection details since this can change depending on where the solution is deployed.
+
+The server does not need to store the use-cases in its schema. since we are updating it to only support the documented use cases that can be added in code. The chaos master service can store the target configurations in the database. when we trigger a use-case we will select a target from the DB that will be hit. The target information will be:
+name
+Address
+service type (http/1.1, http/2, grpc)
+protocol
+connection re-use enabled
+
+The chaos server will need to implement grpcs calls to allow the user to register targets, update orr delete them.
+
+the agents should also have prometheus metrics for all the use cases.
+
+we need metrics on the target-http and agent instances for:
+connection time
+response time
+processing time
+errors
+total
+success
+
+## Metrics Naming
+Target: chaos_target_http_request_duration_seconds, chaos_target_http_requests_total
+Agent: chaos_agent_request_duration_seconds, chaos_agent_requests_total, chaos_agent_errors_total
+Labels: {use_case, method, status_code, connection_pooled}
+
+for each use case we must be able to configure if connections from the agent to the target is re-used or recreated for every test call. this is so that we can show the difference in system performance when proper connection pooling is implemented. We also need it to see how the system will react to bad clients that don't use connection pooling.
+
+the test client located in cmd/client must be updated with the required calls to trigger the tests on the server. its implementation must be located in internal/client.
+
+The client must continue to have an interactive text based interface. It should list the available use cases for testing to allow the user to trigger a use case. It must call the chaos master server to get the use cases, print it out and then the user can configure the use cases to trigger.
+
+The client will get the use cases by calling the server. the user will then select a use-case that will be triggered. the client then calls the server for the available targets. since each target registered will have a name, address, service type and connection pooling config we can select the target to use. Then we must enter the number of users that will be simulated per agent.
+
+All test executions are always at full speed. We will control the volume with the number of deployed agents and the number of users per agent generating traffic.
+
+Tests must run until a function on the chaos master is called to stop the execution.

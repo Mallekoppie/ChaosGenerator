@@ -1,0 +1,44 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: target-http
+  labels:
+    app: target-http
+spec:
+  selector:
+    matchLabels:
+      app: target-http
+  endpoints:
+  - port: metrics
+    interval: 15s
+    path: /metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: target-http-tls
+  labels:
+    app: target-http-tls
+spec:
+  selector:
+    matchLabels:
+      app: target-http-tls
+  endpoints:
+  - port: metrics
+    interval: 15s
+    path: /metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: target-http2
+  labels:
+    app: target-http2
+spec:
+  selector:
+    matchLabels:
+      app: target-http2
+  endpoints:
+  - port: metrics
+    interval: 15s
+    path: /metrics

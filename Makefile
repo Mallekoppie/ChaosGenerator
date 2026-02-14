@@ -1,7 +1,7 @@
-.PHONY: all master agent client clean proto run-server run-client run-both run-master run-agent run-test-setup stop-all
+.PHONY: all master agent client target-http clean proto run-server run-client run-both run-master run-agent run-target-http run-target-http-tls run-target-http-notls run-test-setup stop-all generate-certs
 
-# Build both master and agent
-all: master agent client
+# Build all components
+all: master agent client target-http
 
 # Generate protobuf files
 proto:
@@ -19,6 +19,10 @@ agent: proto
 # Build the client binary
 client: proto
 	go build -o bin/chaos-client.exe ./cmd/client
+
+# Build the target-http binary
+target-http: proto
+	go build -o bin/target-http.exe ./cmd/target-http
 
 # Run the master server
 run-server: master
@@ -59,6 +63,40 @@ run-master: master
 run-agent: agent
 	@echo Starting Chaos Agent...
 	.\bin\chaos-agent.exe
+
+# Run the target-http service (foreground)
+run-target-http: target-http
+	@echo Starting Target HTTP Service...
+	.\bin\target-http.exe
+
+# Run the target-http service with TLS (foreground)
+run-target-http-tls: target-http
+	@echo Starting Target HTTP Service with TLS...
+	@if not exist certs\target-http mkdir certs\target-http
+	@if not exist certs\target-http\tls.crt $(MAKE) generate-certs
+	set CHAOS_TARGET_CERT_FILE=certs\target-http\tls.crt && set CHAOS_TARGET_KEY_FILE=certs\target-http\tls.key && .\bin\target-http.exe
+
+# Run the target-http service without TLS (foreground)
+run-target-http-notls: target-http
+	@echo Starting Target HTTP Service without TLS...
+	.\bin\target-http.exe
+
+# Generate TLS certificates for target-http service
+generate-certs:
+	@echo Generating TLS certificates for target-http...
+	@if not exist certs\target-http mkdir certs\target-http
+	@powershell -Command "& { \
+		$$cert = New-SelfSignedCertificate -DnsName 'localhost', 'target-http' -CertStoreLocation 'cert:\CurrentUser\My'; \
+		$$pwd = ConvertTo-SecureString -String 'password' -Force -AsPlainText; \
+		$$path = 'cert:\CurrentUser\My\' + $$cert.Thumbprint; \
+		Export-PfxCertificate -Cert $$path -FilePath 'certs\target-http\cert.pfx' -Password $$pwd; \
+		$$cert | Remove-Item; \
+	}"
+	@openssl pkcs12 -in certs\target-http\cert.pfx -nocerts -out certs\target-http\tls.key -nodes -passin pass:password
+	@openssl pkcs12 -in certs\target-http\cert.pfx -clcerts -nokeys -out certs\target-http\tls.crt -passin pass:password
+	@echo Certificates generated in certs\target-http\
+	@echo   - tls.crt (certificate)
+	@echo   - tls.key (private key)
 
 # Run test setup: master + 2 agents in background
 run-test-setup: master agent

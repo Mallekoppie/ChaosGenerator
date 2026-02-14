@@ -3,6 +3,10 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
+	"time"
+
 	"mallekoppie/ChaosGenerator/internal/contracts"
 	"mallekoppie/ChaosGenerator/internal/master/logic"
 	"mallekoppie/ChaosGenerator/internal/master/models"
@@ -250,6 +254,300 @@ func (s *ChaosMasterServer) DeleteTestCollection(ctx context.Context, req *contr
 	return &contracts.DeleteTestCollectionResponse{Success: true}, nil
 }
 
+// Target operations
+
+func (s *ChaosMasterServer) RegisterTarget(ctx context.Context, req *contracts.RegisterTargetRequest) (*contracts.RegisterTargetResponse, error) {
+	platform.Log.Info("Received RegisterTarget request", zap.String("name", req.Target.Name))
+
+	if req.Target == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "target is required")
+	}
+	if req.Target.Name == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "target name is required")
+	}
+	if req.Target.Address == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "target address is required")
+	}
+
+	target := targetProtoToModel(req.Target)
+	targetId, err := logic.RegisterTarget(target)
+	if err != nil {
+		platform.Log.Error("Error registering target", zap.Error(err))
+		return &contracts.RegisterTargetResponse{
+			Success: false,
+			Message: err.Error(),
+		}, nil
+	}
+
+	platform.Log.Info("Target registered successfully", zap.String("targetId", targetId))
+	return &contracts.RegisterTargetResponse{
+		TargetId: targetId,
+		Success:  true,
+		Message:  "Target registered successfully",
+	}, nil
+}
+
+func (s *ChaosMasterServer) UpdateTarget(ctx context.Context, req *contracts.UpdateTargetRequest) (*contracts.UpdateTargetResponse, error) {
+	platform.Log.Info("Received UpdateTarget request", zap.String("id", req.Target.Id))
+
+	if req.Target == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "target is required")
+	}
+	if req.Target.Id == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "target ID is required")
+	}
+
+	target := targetProtoToModel(req.Target)
+	err := logic.UpdateTarget(target)
+	if err != nil {
+		platform.Log.Error("Error updating target", zap.Error(err))
+		return &contracts.UpdateTargetResponse{
+			Success: false,
+			Message: err.Error(),
+		}, nil
+	}
+
+	return &contracts.UpdateTargetResponse{
+		Success: true,
+		Message: "Target updated successfully",
+	}, nil
+}
+
+func (s *ChaosMasterServer) DeleteTarget(ctx context.Context, req *contracts.DeleteTargetRequest) (*contracts.DeleteTargetResponse, error) {
+	platform.Log.Info("Received DeleteTarget request", zap.String("id", req.Id))
+
+	if req.Id == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "target ID is required")
+	}
+
+	err := logic.DeleteTarget(req.Id)
+	if err != nil {
+		platform.Log.Error("Error deleting target", zap.Error(err))
+		return &contracts.DeleteTargetResponse{
+			Success: false,
+			Message: err.Error(),
+		}, nil
+	}
+
+	return &contracts.DeleteTargetResponse{
+		Success: true,
+		Message: "Target deleted successfully",
+	}, nil
+}
+
+func (s *ChaosMasterServer) GetAllTargets(ctx context.Context, req *contracts.GetAllTargetsRequest) (*contracts.GetAllTargetsResponse, error) {
+	platform.Log.Info("Received GetAllTargets request")
+
+	targets, err := logic.GetAllTargets()
+	if err != nil {
+		platform.Log.Error("Error getting all targets", zap.Error(err))
+		return nil, status.Errorf(codes.Internal, "failed to get targets: %v", err)
+	}
+
+	pbTargets := make([]*contracts.Target, len(targets))
+	for i, target := range targets {
+		pbTargets[i] = targetModelToProto(target)
+	}
+
+	return &contracts.GetAllTargetsResponse{Targets: pbTargets}, nil
+}
+
+// Use case operations
+
+func (s *ChaosMasterServer) GetUseCases(ctx context.Context, req *contracts.GetUseCasesRequest) (*contracts.GetUseCasesResponse, error) {
+	platform.Log.Info("Received GetUseCases request")
+
+	// Hardcoded use cases
+	useCases := []*contracts.UseCase{
+		{Id: "uc1", Name: "Health Check", Path: "/health", Method: "GET", Description: "Minimal overhead health check endpoint"},
+		{Id: "uc2", Name: "Status Endpoint", Path: "/api/v1/status", Method: "GET", Description: "Status endpoint with lightweight JSON metadata"},
+		{Id: "uc3", Name: "Simple Query", Path: "/api/v1/users/", Method: "GET", Description: "Simple query operation with small payload (1-2KB)"},
+		{Id: "uc4", Name: "Create Resource", Path: "/api/v1/users", Method: "POST", Description: "Create resource operation with request/response (1-2KB)"},
+		{Id: "uc5", Name: "List Collection", Path: "/api/v1/users", Method: "GET", Description: "List/collection query with pagination (50-100KB)"},
+		{Id: "uc6", Name: "Bulk Update", Path: "/api/v1/users/bulk", Method: "PATCH", Description: "Bulk update operation with larger payloads (100-200KB)"},
+		{Id: "uc7", Name: "Report Generation", Path: "/api/v1/reports/generate", Method: "POST", Description: "CPU-intensive report generation (500KB-1MB response)"},
+		{Id: "uc8", Name: "File Upload", Path: "/api/v1/documents/upload", Method: "POST", Description: "Large request payload simulation (10-25MB)"},
+		{Id: "uc9", Name: "Data Export", Path: "/api/v1/transactions/export", Method: "GET", Description: "Large response payload and streaming (25-50MB)"},
+		{Id: "uc10", Name: "Network Saturation", Path: "/api/v1/data/process", Method: "POST", Description: "Network bandwidth saturation testing (100-250MB)"},
+		{Id: "uc11", Name: "Memory Pressure", Path: "/api/v1/analytics/stream", Method: "POST", Description: "Long-running operations for memory leak detection (10-20KB)"},
+	}
+
+	return &contracts.GetUseCasesResponse{UseCases: useCases}, nil
+}
+
+// Test execution operations
+
+func (s *ChaosMasterServer) StartTestExecution(ctx context.Context, req *contracts.StartTestExecutionRequest) (*contracts.StartTestExecutionResponse, error) {
+	platform.Log.Info("Received StartTestExecution request",
+		zap.String("useCaseId", req.UseCaseId),
+		zap.String("targetId", req.TargetId),
+		zap.Int32("users", req.SimulatedUsersPerAgent))
+
+	// Validate request
+	if req.UseCaseId == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "use case ID is required")
+	}
+	if req.TargetId == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "target ID is required")
+	}
+	if req.SimulatedUsersPerAgent <= 0 {
+		return nil, status.Errorf(codes.InvalidArgument, "simulated users per agent must be greater than 0")
+	}
+
+	// Get target details
+	target, err := logic.GetTarget(req.TargetId)
+	if err != nil {
+		platform.Log.Error("Error getting target", zap.Error(err))
+		return &contracts.StartTestExecutionResponse{
+			Success: false,
+			Message: fmt.Sprintf("Target not found: %v", err),
+		}, nil
+	}
+
+	// Generate test execution ID
+	testExecutionId := fmt.Sprintf("test-%d", time.Now().Unix())
+
+	// Get connected agents
+	connMgr := GetConnectionManager()
+	var agentIds []string
+
+	if req.AgentSelection == "all" || req.AgentSelection == "" {
+		agentIds = connMgr.GetAllAgentIds()
+	} else {
+		// Parse comma-separated agent IDs
+		agentIds = parseAgentSelection(req.AgentSelection)
+	}
+
+	if len(agentIds) == 0 {
+		return &contracts.StartTestExecutionResponse{
+			Success: false,
+			Message: "No agents available or selected",
+		}, nil
+	}
+
+	// Send StartTestCommand to all selected agents
+	successCount := 0
+	for _, agentId := range agentIds {
+		command := &contracts.AgentCommand{
+			CommandId: fmt.Sprintf("cmd-%s-%s", testExecutionId, agentId),
+			Command: &contracts.AgentCommand_StartTest{
+				StartTest: &contracts.StartTestCommand{
+					TestExecutionId:        testExecutionId,
+					UseCaseId:              req.UseCaseId,
+					TargetAddress:          target.Address,
+					TargetProtocol:         target.Protocol,
+					ConnectionReuseEnabled: target.ConnectionReuseEnabled,
+					SimulatedUsers:         req.SimulatedUsersPerAgent,
+				},
+			},
+		}
+
+		_, err := connMgr.SendCommand(agentId, command)
+		if err != nil {
+			platform.Log.Error("Error sending start command to agent",
+				zap.String("agentId", agentId),
+				zap.Error(err))
+		} else {
+			successCount++
+		}
+	}
+
+	if successCount == 0 {
+		return &contracts.StartTestExecutionResponse{
+			Success: false,
+			Message: "Failed to start test on any agent",
+		}, nil
+	}
+
+	platform.Log.Info("Test execution started",
+		zap.String("testExecutionId", testExecutionId),
+		zap.Int("agents", successCount))
+
+	return &contracts.StartTestExecutionResponse{
+		TestExecutionId: testExecutionId,
+		Success:         true,
+		Message:         fmt.Sprintf("Test started on %d agent(s)", successCount),
+	}, nil
+}
+
+func (s *ChaosMasterServer) StopTestExecution(ctx context.Context, req *contracts.StopTestExecutionRequest) (*contracts.StopTestExecutionResponse, error) {
+	platform.Log.Info("Received StopTestExecution request", zap.String("testExecutionId", req.TestExecutionId))
+
+	if req.TestExecutionId == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "test execution ID is required")
+	}
+
+	// Send StopTestCommand to all connected agents
+	connMgr := GetConnectionManager()
+	agentIds := connMgr.GetAllAgentIds()
+
+	if len(agentIds) == 0 {
+		return &contracts.StopTestExecutionResponse{
+			Success: false,
+			Message: "No agents connected",
+		}, nil
+	}
+
+	successCount := 0
+	for _, agentId := range agentIds {
+		command := &contracts.AgentCommand{
+			CommandId: fmt.Sprintf("cmd-stop-%s-%s", req.TestExecutionId, agentId),
+			Command: &contracts.AgentCommand_StopTest{
+				StopTest: &contracts.StopTestCommand{
+					TestExecutionId: req.TestExecutionId,
+				},
+			},
+		}
+
+		_, err := connMgr.SendCommand(agentId, command)
+		if err != nil {
+			platform.Log.Error("Error sending stop command to agent",
+				zap.String("agentId", agentId),
+				zap.Error(err))
+		} else {
+			successCount++
+		}
+	}
+
+	platform.Log.Info("Stop command sent",
+		zap.String("testExecutionId", req.TestExecutionId),
+		zap.Int("agents", successCount))
+
+	return &contracts.StopTestExecutionResponse{
+		Success: true,
+		Message: fmt.Sprintf("Stop command sent to %d agent(s)", successCount),
+	}, nil
+}
+
+// Helper functions
+
+func parseAgentSelection(selection string) []string {
+	if selection == "" {
+		return []string{}
+	}
+
+	parts := strings.Split(selection, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}
+
+func targetModelToProto(target models.Target) *contracts.Target {
+	return &contracts.Target{
+		Id:                     target.ID,
+		Name:                   target.Name,
+		Address:                target.Address,
+		ServiceType:            target.ServiceType,
+		Protocol:               target.Protocol,
+		ConnectionReuseEnabled: target.ConnectionReuseEnabled,
+	}
+}
+
 // Conversion functions
 func agentModelToProto(agent models.Agent) *contracts.Agent {
 	return &contracts.Agent{
@@ -372,5 +670,18 @@ func testProtoToModel(pbTest *contracts.MasterTest) models.Test {
 		Headers:      headers,
 		ResponseCode: pbTest.ResponseCode,
 		ResponseBody: pbTest.ResponseBody,
+	}
+}
+
+// Target conversion helpers
+
+func targetProtoToModel(pbTarget *contracts.Target) models.Target {
+	return models.Target{
+		ID:                     pbTarget.Id,
+		Name:                   pbTarget.Name,
+		Address:                pbTarget.Address,
+		ServiceType:            pbTarget.ServiceType,
+		Protocol:               pbTarget.Protocol,
+		ConnectionReuseEnabled: pbTarget.ConnectionReuseEnabled,
 	}
 }

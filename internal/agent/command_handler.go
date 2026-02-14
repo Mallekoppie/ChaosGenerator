@@ -83,9 +83,19 @@ func (h *CommandHandler) handleAddTests(commandId string, cmd *pb.AddTestsComman
 }
 
 func (h *CommandHandler) handleStartTest(commandId string, cmd *pb.StartTestCommand) *pb.CommandResponse {
-	log.Printf("Handling StartTest command: %s with %d users", cmd.TestCollectionName, cmd.SimulatedUsers)
+	log.Printf("Handling StartTest command: %s with %d users, useCase: %s, target: %s",
+		cmd.TestExecutionId, cmd.SimulatedUsers, cmd.UseCaseId, cmd.TargetAddress)
 
-	started, err := core.CoreRunTest(cmd.TestCollectionName, int(cmd.SimulatedUsers))
+	// Use new test execution manager
+	manager := GetTestExecutionManager()
+	err := manager.StartTest(
+		cmd.TestExecutionId,
+		cmd.UseCaseId,
+		cmd.TargetAddress,
+		cmd.TargetProtocol,
+		cmd.ConnectionReuseEnabled,
+		int(cmd.SimulatedUsers),
+	)
 
 	if err != nil {
 		log.Printf("Error starting test: %v", err)
@@ -98,14 +108,25 @@ func (h *CommandHandler) handleStartTest(commandId string, cmd *pb.StartTestComm
 
 	return &pb.CommandResponse{
 		CommandId: commandId,
-		Success:   started,
+		Success:   true,
 	}
 }
 
 func (h *CommandHandler) handleStopTest(commandId string, cmd *pb.StopTestCommand) *pb.CommandResponse {
-	log.Printf("Handling StopTest command: %s", cmd.TestName)
+	log.Printf("Handling StopTest command: %s", cmd.TestExecutionId)
 
-	core.CoreStopTest()
+	// Use new test execution manager
+	manager := GetTestExecutionManager()
+	err := manager.StopTest(cmd.TestExecutionId)
+
+	if err != nil {
+		log.Printf("Error stopping test: %v", err)
+		return &pb.CommandResponse{
+			CommandId: commandId,
+			Success:   false,
+			Error:     err.Error(),
+		}
+	}
 
 	return &pb.CommandResponse{
 		CommandId: commandId,

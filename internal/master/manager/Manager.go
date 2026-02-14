@@ -112,8 +112,9 @@ func SendStartTestCommand(agentId string, testCollectionName string, simulatedUs
 		CommandId: uuid.New().String(),
 		Command: &pb.AgentCommand_StartTest{
 			StartTest: &pb.StartTestCommand{
-				TestCollectionName: testCollectionName,
-				SimulatedUsers:     simulatedUsers,
+				TestExecutionId: testCollectionName,
+				SimulatedUsers:  simulatedUsers,
+				// TODO: Add use case and target info from test execution
 			},
 		},
 	}
@@ -140,7 +141,7 @@ func SendStopTestCommand(agentId string, testName string) error {
 		CommandId: uuid.New().String(),
 		Command: &pb.AgentCommand_StopTest{
 			StopTest: &pb.StopTestCommand{
-				TestName: testName,
+				TestExecutionId: testName,
 			},
 		},
 	}

@@ -80,6 +80,18 @@ func (cm *ConnectionManager) GetAllConnections() []*AgentConnection {
 	return conns
 }
 
+// GetAllAgentIds returns all active agent IDs
+func (cm *ConnectionManager) GetAllAgentIds() []string {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	ids := make([]string, 0, len(cm.connections))
+	for agentId := range cm.connections {
+		ids = append(ids, agentId)
+	}
+	return ids
+}
+
 // SendCommand sends a command to a specific agent
 func (cm *ConnectionManager) SendCommand(agentId string, command *pb.AgentCommand) (*pb.CommandResponse, error) {
 	conn, ok := cm.GetConnection(agentId)
