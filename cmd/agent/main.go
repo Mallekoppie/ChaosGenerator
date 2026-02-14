@@ -17,7 +17,7 @@ import (
 
 	"github.com/tkanos/gonfig"
 
-	pb "mallekoppie/ChaosGenerator/contract"
+	pb "mallekoppie/ChaosGenerator/internal/contracts"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"

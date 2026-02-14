@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"testing"
 
-	pb "mallekoppie/ChaosGenerator/contract"
+	pb "mallekoppie/ChaosGenerator/internal/contracts"
 )
 
 func init() {
