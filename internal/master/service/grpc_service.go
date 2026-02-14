@@ -83,6 +83,38 @@ func (s *ChaosMasterServer) DeleteAgent(ctx context.Context, req *contracts.Dele
 	return &contracts.DeleteAgentResponse{Success: true}, nil
 }
 
+func (s *ChaosMasterServer) ClearAllAgents(ctx context.Context, req *contracts.ClearAllAgentsRequest) (*contracts.ClearAllAgentsResponse, error) {
+	platform.Log.Info("Received ClearAllAgents request")
+
+	// First, close all active connections
+	connMgr := GetConnectionManager()
+	activeAgentIds := connMgr.GetAllAgentIds()
+
+	// Note: Closing connections will trigger RemoveConnection which deletes from DB
+	// So we clear the database after to ensure everything is cleaned up
+
+	// Clear from database
+	count, err := logic.ClearAllAgents()
+	if err != nil {
+		platform.Log.Error("Error clearing all agents", zap.Error(err))
+		return &contracts.ClearAllAgentsResponse{
+			Success:      false,
+			Message:      fmt.Sprintf("Failed to clear agents: %v", err),
+			DeletedCount: 0,
+		}, nil
+	}
+
+	platform.Log.Info("All agents cleared from database",
+		zap.Int("deletedCount", count),
+		zap.Int("activeConnections", len(activeAgentIds)))
+
+	return &contracts.ClearAllAgentsResponse{
+		Success:      true,
+		Message:      fmt.Sprintf("Successfully cleared %d agent(s) from database", count),
+		DeletedCount: int32(count),
+	}, nil
+}
+
 func (s *ChaosMasterServer) RegisterAgent(ctx context.Context, req *contracts.RegisterAgentRequest) (*contracts.RegisterAgentResponse, error) {
 	platform.Log.Info("Received RegisterAgent request",
 		zap.String("hostname", req.Hostname),

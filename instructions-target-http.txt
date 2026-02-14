@@ -47,6 +47,8 @@ connection re-use enabled
 
 The chaos server will need to implement grpcs calls to allow the user to register targets, update orr delete them.
 
+the chaos server also needs a command to clear agents from the db. it could happen that they don't shutdown gracefully so we should have the ability to cleanup the database. a option should then be added to the client to call this new function.
+
 the agents should also have prometheus metrics for all the use cases.
 
 we need metrics on the target-http and agent instances for:

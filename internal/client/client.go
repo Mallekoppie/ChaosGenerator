@@ -54,6 +54,8 @@ func (c *Client) Start() {
 		fmt.Println("\nInformation:")
 		fmt.Println("  7. List Use Cases")
 		fmt.Println("  8. List Agents")
+		fmt.Println("\nMaintenance:")
+		fmt.Println("  9. Clear All Agents")
 		fmt.Println("\n  0. Exit")
 		fmt.Print("\nSelect option: ")
 
@@ -77,6 +79,8 @@ func (c *Client) Start() {
 			c.listUseCases()
 		case "8":
 			c.listAgents()
+		case "9":
+			c.clearAllAgents()
 		case "0":
 			fmt.Println("Exiting...")
 			return
@@ -269,6 +273,35 @@ func (c *Client) listAgents() {
 		fmt.Printf("   Metrics Port: %d\n", agent.MetricsPort)
 		fmt.Printf("   Enabled: %v\n", agent.Enabled)
 		fmt.Printf("   Status: %s\n", agent.Status)
+	}
+}
+
+func (c *Client) clearAllAgents() {
+	fmt.Println("\n=== Clear All Agents ===")
+	fmt.Println("WARNING: This will remove all agents from the database.")
+	fmt.Println("This is useful for cleaning up agents that didn't shutdown gracefully.")
+
+	confirm := c.readInput("\nAre you sure you want to clear ALL agents? (yes/no): ")
+	if strings.ToLower(confirm) != "yes" {
+		fmt.Println("Operation cancelled.")
+		return
+	}
+
+	resp, err := c.grpcClient.ClearAllAgents(c.ctx, &contracts.ClearAllAgentsRequest{})
+	if err != nil {
+		fmt.Printf("Error clearing agents: %v\n", err)
+		return
+	}
+
+	if resp.Success {
+		fmt.Printf("✓ %s\n", resp.Message)
+		if resp.DeletedCount > 0 {
+			fmt.Printf("  Cleared %d agent(s) from database\n", resp.DeletedCount)
+		} else {
+			fmt.Println("  No agents were in the database")
+		}
+	} else {
+		fmt.Printf("✗ Failed to clear agents: %s\n", resp.Message)
 	}
 }
 

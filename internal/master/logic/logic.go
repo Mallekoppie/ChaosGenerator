@@ -75,6 +75,27 @@ func DeleteAgent(agent models.Agent) error {
 
 }
 
+func ClearAllAgents() (int, error) {
+	platform.Log.Info("Clearing all agents from database")
+
+	// Get count before deleting
+	agents, err := repositories.GetAllAgents()
+	if err != nil {
+		platform.Log.Error("Unable to get agent count: ", zap.Error(err))
+		return 0, err
+	}
+	count := len(agents)
+
+	err = repositories.DeleteAllAgents()
+	if err != nil {
+		platform.Log.Error("Unable to delete all agents: ", zap.Error(err))
+		return 0, err
+	}
+
+	platform.Log.Info("All agents cleared", zap.Int("count", count))
+	return count, nil
+}
+
 func RegisterAgent(hostname string, port int, metricsPort int, version string) (string, error) {
 	platform.Log.Info("Registering new agent",
 		zap.String("hostname", hostname),
