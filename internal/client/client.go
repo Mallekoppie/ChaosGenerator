@@ -258,26 +258,59 @@ func (c *Client) updateTarget() {
 }
 
 func (c *Client) deleteTarget() {
-	c.listTargets()
+	// Get all targets
+	resp, err := c.grpcClient.GetAllTargets(c.ctx, &contracts.GetAllTargetsRequest{})
+	if err != nil {
+		fmt.Printf("Error getting targets: %v\n", err)
+		return
+	}
 
+	if len(resp.Targets) == 0 {
+		fmt.Println("No targets registered.")
+		return
+	}
+
+	// Display targets
 	fmt.Println("\n=== Delete Target ===")
-	targetId := c.readInput("Target ID to delete: ")
+	fmt.Println("Registered Targets:")
+	for i, target := range resp.Targets {
+		fmt.Printf("%d. %s (ID: %s)\n", i+1, target.Name, target.Id)
+		fmt.Printf("   Address: %s | Protocol: %s\n", target.Address, target.Protocol)
+		fmt.Println()
+	}
 
-	if !c.readBool("Are you sure you want to delete this target?") {
+	// Get user selection
+	selection := c.readInt(fmt.Sprintf("Enter target number to delete (1-%d) or 0 to cancel: ", len(resp.Targets)))
+
+	if selection == 0 {
 		fmt.Println("Cancelled.")
 		return
 	}
 
-	resp, err := c.grpcClient.DeleteTarget(c.ctx, &contracts.DeleteTargetRequest{Id: targetId})
+	if selection < 1 || selection > len(resp.Targets) {
+		fmt.Println("Invalid selection.")
+		return
+	}
+
+	selectedTarget := resp.Targets[selection-1]
+
+	// Confirm deletion
+	if !c.readBool(fmt.Sprintf("Are you sure you want to delete target '%s' (%s)?", selectedTarget.Name, selectedTarget.Address)) {
+		fmt.Println("Cancelled.")
+		return
+	}
+
+	// Delete the target
+	deleteResp, err := c.grpcClient.DeleteTarget(c.ctx, &contracts.DeleteTargetRequest{Id: selectedTarget.Id})
 	if err != nil {
 		fmt.Printf("Error deleting target: %v\n", err)
 		return
 	}
 
-	if resp.Success {
+	if deleteResp.Success {
 		fmt.Println("✓ Target deleted successfully")
 	} else {
-		fmt.Printf("✗ Failed to delete target: %s\n", resp.Message)
+		fmt.Printf("✗ Failed to delete target: %s\n", deleteResp.Message)
 	}
 }
 
