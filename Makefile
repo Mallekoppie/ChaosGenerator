@@ -158,6 +158,15 @@ monitoring-down:
 	@docker-compose -f docker-compose-monitoring.yml down
 	@echo Monitoring stack stopped.
 
+# Restart Prometheus and Grafana monitoring stack
+monitoring-restart:
+	@echo Restarting monitoring stack...
+	@docker-compose -f docker-compose-monitoring.yml down
+	@docker-compose -f docker-compose-monitoring.yml up -d
+	@echo Monitoring stack restarted.
+	@echo Prometheus: http://localhost:9091
+	@echo Grafana: http://localhost:3000 (admin/admin)
+
 # View monitoring stack logs
 monitoring-logs:
 	@docker-compose -f docker-compose-monitoring.yml logs -f
@@ -217,87 +226,3 @@ run-full-stack: master agent target-http
 	@echo   View monitoring logs:   make monitoring-logs
 	@echo.
 	@echo ================================================================
-
-# ================================================================
-# Docker-based Full Stack Targets
-# ================================================================
-
-# Build all Docker images
-docker-build:
-	@echo Building Docker images...
-	@if not exist certs\target-http mkdir certs\target-http
-	@if not exist certs\target-http\tls.crt $(MAKE) generate-certs
-	@docker-compose -f docker-compose-full-stack.yml build
-	@echo Docker images built successfully.
-
-# Start the full Docker stack (all services + monitoring)
-docker-up: docker-build
-	@echo.
-	@echo ================================================================
-	@echo === Starting Full Docker Stack ===
-	@echo ================================================================
-	@echo.
-	@docker-compose -f docker-compose-full-stack.yml up -d
-	@echo.
-	@echo Waiting for services to start...
-	@timeout /t 10 /nobreak >nul
-	@echo.
-	@echo ================================================================
-	@echo === Docker Stack Running ===
-	@echo ================================================================
-	@echo.
-	@echo Services:
-	@echo   Chaos Master:           localhost:9002 (gRPC)
-	@echo   Chaos Agent 1:          metrics on localhost:9096
-	@echo   Chaos Agent 2:          metrics on localhost:9097
-	@echo   Target HTTP (non-TLS):  http://localhost:8080 (metrics: 9090)
-	@echo   Target HTTP (TLS):      https://localhost:8443 (metrics: 9093)
-	@echo   Target HTTP/2 (TLS):    https://localhost:8444 (metrics: 9094)
-	@echo.
-	@echo Monitoring:
-	@echo   Prometheus:             http://localhost:9091
-	@echo   Grafana:                http://localhost:3000 (admin/admin)
-	@echo.
-	@echo Grafana Dashboards:
-	@echo   - Chaos Agents Dashboard
-	@echo   - Chaos Target Services Dashboard
-	@echo   - Client Perspective - Load Testing
-	@echo   - Service Perspective - Load Testing
-	@echo.
-	@echo Commands:
-	@echo   View logs:              make docker-logs
-	@echo   Stop stack:             make docker-down
-	@echo   Restart stack:          make docker-restart
-	@echo.
-	@echo To run the client from your terminal:
-	@echo   make run-client
-	@echo.
-	@echo ================================================================
-
-# Stop the full Docker stack
-docker-down:
-	@echo Stopping Docker stack...
-	@docker-compose -f docker-compose-full-stack.yml down
-	@echo Docker stack stopped.
-
-# Stop and remove all containers, networks, and images
-stop-full-stack:
-	@echo Stopping and cleaning up Docker stack...
-	@docker-compose -f docker-compose-full-stack.yml down
-	@echo.
-	@echo Note: Chaos Master database volume is preserved.
-	@echo To remove all volumes (including DB), run: docker-compose -f docker-compose-full-stack.yml down -v
-	@echo Docker stack stopped and cleaned up.
-
-# View Docker stack logs
-docker-logs:
-	@docker-compose -f docker-compose-full-stack.yml logs -f
-
-# Restart the Docker stack
-docker-restart:
-	@echo Restarting Docker stack...
-	@docker-compose -f docker-compose-full-stack.yml restart
-	@echo Docker stack restarted.
-
-# Alias for docker-up (follows naming convention from instructions)
-docker-full-stack: docker-up
