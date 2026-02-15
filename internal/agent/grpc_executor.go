@@ -19,6 +19,7 @@ type GRPCExecutor struct {
 	conn             *grpc.ClientConn
 	client           contracts.ChaosTargetClient
 	targetAddress    string
+	targetProtocol   string
 	connectionPooled bool
 	useCaseID        string
 	testExecutionID  string
@@ -73,6 +74,7 @@ func NewGRPCExecutor(targetAddress, targetProtocol string, connectionPooled bool
 		conn:             conn,
 		client:           client,
 		targetAddress:    targetAddress,
+		targetProtocol:   targetProtocol,
 		connectionPooled: connectionPooled,
 		useCaseID:        useCaseID,
 		testExecutionID:  testExecutionID,
@@ -87,7 +89,7 @@ func (e *GRPCExecutor) Execute(ctx context.Context) error {
 	// If connection pooling is disabled, create a new connection for each request
 	if !e.connectionPooled {
 		if err := e.reconnect(); err != nil {
-			AgentErrorsTotal.WithLabelValues(e.useCaseID, "connection_failed", fmt.Sprintf("%v", e.connectionPooled)).Inc()
+			AgentErrorsTotal.WithLabelValues(e.targetProtocol, e.useCaseID, "connection_failed", fmt.Sprintf("%v", e.connectionPooled)).Inc()
 			return fmt.Errorf("failed to reconnect: %w", err)
 		}
 		defer e.conn.Close()
@@ -139,16 +141,16 @@ func (e *GRPCExecutor) Execute(ctx context.Context) error {
 	duration := time.Since(start).Seconds()
 
 	if err != nil {
-		AgentErrorsTotal.WithLabelValues(e.useCaseID, "request_failed", fmt.Sprintf("%v", e.connectionPooled)).Inc()
-		AgentRequestDuration.WithLabelValues(e.useCaseID, method, "error", fmt.Sprintf("%v", e.connectionPooled)).Observe(duration)
-		AgentRequestsTotal.WithLabelValues(e.useCaseID, method, "error", fmt.Sprintf("%v", e.connectionPooled)).Inc()
+		AgentErrorsTotal.WithLabelValues(e.targetProtocol, e.useCaseID, "request_failed", fmt.Sprintf("%v", e.connectionPooled)).Inc()
+		AgentRequestDuration.WithLabelValues(e.targetProtocol, e.useCaseID, method, "error", fmt.Sprintf("%v", e.connectionPooled)).Observe(duration)
+		AgentRequestsTotal.WithLabelValues(e.targetProtocol, e.useCaseID, method, "error", fmt.Sprintf("%v", e.connectionPooled)).Inc()
 		return fmt.Errorf("request failed: %w", err)
 	}
 
-	AgentRequestDuration.WithLabelValues(e.useCaseID, method, "OK", fmt.Sprintf("%v", e.connectionPooled)).Observe(duration)
-	AgentProcessingTime.WithLabelValues(e.useCaseID, fmt.Sprintf("%v", e.connectionPooled)).Observe(duration)
-	AgentRequestsTotal.WithLabelValues(e.useCaseID, method, "OK", fmt.Sprintf("%v", e.connectionPooled)).Inc()
-	AgentSuccessTotal.WithLabelValues(e.useCaseID, fmt.Sprintf("%v", e.connectionPooled)).Inc()
+	AgentRequestDuration.WithLabelValues(e.targetProtocol, e.useCaseID, method, "OK", fmt.Sprintf("%v", e.connectionPooled)).Observe(duration)
+	AgentProcessingTime.WithLabelValues(e.targetProtocol, e.useCaseID, fmt.Sprintf("%v", e.connectionPooled)).Observe(duration)
+	AgentRequestsTotal.WithLabelValues(e.targetProtocol, e.useCaseID, method, "OK", fmt.Sprintf("%v", e.connectionPooled)).Inc()
+	AgentSuccessTotal.WithLabelValues(e.targetProtocol, e.useCaseID, fmt.Sprintf("%v", e.connectionPooled)).Inc()
 
 	return nil
 }

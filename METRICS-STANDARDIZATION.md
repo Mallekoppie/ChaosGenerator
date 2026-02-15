@@ -13,7 +13,7 @@ As of this update, target service metrics have been standardized to use a common
 
 ### Metric Names
 
-All target metrics have been renamed to remove protocol identifiers from the metric name and add them as labels instead.
+All target metrics have been renamed to remove protocol identifiers from the metric name and add them as labels instead. Agent metrics have also been updated to include `target_protocol` label to track which protocol the agent is testing against.
 
 #### Before (Protocol-Specific)
 ```
@@ -60,6 +60,18 @@ All target metrics now include `target_type` as the first label:
 | `chaos_target_response_size_bytes` | `target_type`, `use_case` |
 | `chaos_target_request_size_bytes` | `target_type`, `use_case` |
 
+All agent metrics now include `target_protocol` as the first label:
+
+| Metric | Labels |
+|--------|--------|
+| `chaos_agent_request_duration_seconds` | `target_protocol`, `use_case`, `method`, `status_code`, `connection_pooled` |
+| `chaos_agent_requests_total` | `target_protocol`, `use_case`, `method`, `status_code`, `connection_pooled` |
+| `chaos_agent_errors_total` | `target_protocol`, `use_case`, `error_type`, `connection_pooled` |
+| `chaos_agent_connection_time_seconds` | `target_protocol`, `use_case`, `connection_pooled` |
+| `chaos_agent_response_time_seconds` | `target_protocol`, `use_case`, `connection_pooled` |
+| `chaos_agent_processing_time_seconds` | `target_protocol`, `use_case`, `connection_pooled` |
+| `chaos_agent_success_total` | `target_protocol`, `use_case`, `connection_pooled` |
+
 ### Query Examples
 
 #### Query Both HTTP and gRPC Together
@@ -70,6 +82,13 @@ sum(rate(chaos_target_requests_total[5m])) by (target_type, use_case)
 # p95 latency comparison
 histogram_quantile(0.95, sum by (le, target_type, use_case) 
   (rate(chaos_target_request_duration_seconds_bucket[5m])))
+
+# Agent perspective - all protocols
+sum(rate(chaos_agent_requests_total[5m])) by (target_protocol, use_case)
+
+# p95 end-to-end latency from agent by protocol
+histogram_quantile(0.95, sum by (le, target_protocol, use_case) 
+  (rate(chaos_agent_request_duration_seconds_bucket[5m])))
 ```
 
 #### Query Specific Target Type
@@ -79,6 +98,12 @@ rate(chaos_target_requests_total{target_type="http"}[5m])
 
 # gRPC-only metrics
 rate(chaos_target_requests_total{target_type="grpc"}[5m])
+
+# Agent testing HTTP targets
+rate(chaos_agent_requests_total{target_protocol="https"}[5m])
+
+# Agent testing gRPC targets
+rate(chaos_agent_requests_total{target_protocol="grpc"}[5m])
 ```
 
 #### Cross-Protocol Comparison
@@ -87,6 +112,11 @@ rate(chaos_target_requests_total{target_type="grpc"}[5m])
 sum(rate(chaos_target_success_total[5m])) by (target_type) 
   / 
 sum(rate(chaos_target_requests_total[5m])) by (target_type)
+
+# Agent success rate by protocol
+sum(rate(chaos_agent_success_total[5m])) by (target_protocol) 
+  / 
+sum(rate(chaos_agent_requests_total[5m])) by (target_protocol)
 ```
 
 ## Implementation Details
@@ -110,10 +140,25 @@ sum(rate(chaos_target_requests_total[5m])) by (target_type)
    - Updated all `WithLabelValues()` calls to include `"grpc"` as first parameter
    - Updated all 11 use case implementations (UC1-UC11)
 
-5. **monitoring/grafana/provisioning/dashboards/chaos-comparison.json**
+5. **internal/agent/metrics.go**
+   - Added `target_protocol` as first label to all agent metric definitions
+   - Updated metric help text to be protocol-agnostic
+
+6. **internal/agent/executor.go**
+   - Added `targetProtocol` field to `HTTPExecutor` struct
+   - Updated all `WithLabelValues()` calls to include `targetProtocol` as first parameter
+   - Updated all metric recording calls in all use case handlers
+
+7. **internal/agent/grpc_executor.go**
+   - Added `targetProtocol` field to `GRPCExecutor` struct
+   - Updated all `WithLabelValues()` calls to include `targetProtocol` as first parameter
+   - Updated all metric recording calls in all use case handlers
+
+8. **monitoring/grafana/provisioning/dashboards/chaos-comparison.json**
    - Updated all PromQL queries to use new metric names
-   - Added `target_type="http"` filter to all HTTP-specific queries
-   - Queries now support adding gRPC metrics alongside HTTP
+   - Added `target_type="http"` filter where needed, or removed filter to show all protocols
+   - Added `target_protocol` to agent metric queries
+   - Updated legend formats to include `target_type` and `target_protocol` labels
 
 ## Benefits
 

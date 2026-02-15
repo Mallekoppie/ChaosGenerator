@@ -10,19 +10,19 @@ var (
 	AgentRequestDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "chaos_agent_request_duration_seconds",
-			Help:    "HTTP request duration in seconds from agent perspective",
+			Help:    "Request duration in seconds from agent perspective",
 			Buckets: prometheus.DefBuckets,
 		},
-		[]string{"use_case", "method", "status_code", "connection_pooled"},
+		[]string{"target_protocol", "use_case", "method", "status_code", "connection_pooled"},
 	)
 
 	// Request counter
 	AgentRequestsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "chaos_agent_requests_total",
-			Help: "Total number of HTTP requests made by agent",
+			Help: "Total number of requests made by agent",
 		},
-		[]string{"use_case", "method", "status_code", "connection_pooled"},
+		[]string{"target_protocol", "use_case", "method", "status_code", "connection_pooled"},
 	)
 
 	// Error counter
@@ -31,7 +31,7 @@ var (
 			Name: "chaos_agent_errors_total",
 			Help: "Total number of errors encountered by agent",
 		},
-		[]string{"use_case", "error_type", "connection_pooled"},
+		[]string{"target_protocol", "use_case", "error_type", "connection_pooled"},
 	)
 
 	// Connection time
@@ -41,7 +41,7 @@ var (
 			Help:    "Connection establishment time in seconds",
 			Buckets: prometheus.DefBuckets,
 		},
-		[]string{"use_case", "connection_pooled"},
+		[]string{"target_protocol", "use_case", "connection_pooled"},
 	)
 
 	// Response time (time to first byte)
@@ -51,7 +51,7 @@ var (
 			Help:    "Time to receive first byte of response",
 			Buckets: prometheus.DefBuckets,
 		},
-		[]string{"use_case", "connection_pooled"},
+		[]string{"target_protocol", "use_case", "connection_pooled"},
 	)
 
 	// Processing time (total time including reading response body)
@@ -61,7 +61,7 @@ var (
 			Help:    "Total processing time including response body read",
 			Buckets: prometheus.DefBuckets,
 		},
-		[]string{"use_case", "connection_pooled"},
+		[]string{"target_protocol", "use_case", "connection_pooled"},
 	)
 
 	// Success counter
@@ -70,7 +70,7 @@ var (
 			Name: "chaos_agent_success_total",
 			Help: "Total number of successful requests",
 		},
-		[]string{"use_case", "connection_pooled"},
+		[]string{"target_protocol", "use_case", "connection_pooled"},
 	)
 
 	// Active test executions

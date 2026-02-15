@@ -32,6 +32,7 @@ type HTTPExecutor struct {
 	client           *http.Client
 	clientNoPool     *http.Client
 	targetAddress    string
+	targetProtocol   string
 	connectionPooled bool
 	useCaseID        string
 	method           string
@@ -84,6 +85,7 @@ func NewHTTPExecutor(targetAddress, targetProtocol string, connectionPooled bool
 			Timeout:   120 * time.Second,
 		},
 		targetAddress:    targetAddress,
+		targetProtocol:   targetProtocol,
 		connectionPooled: connectionPooled,
 		useCaseID:        useCaseID,
 		method:           method,
@@ -117,7 +119,7 @@ func (e *HTTPExecutor) Execute(ctx context.Context) error {
 		ConnectDone: func(network, addr string, err error) {
 			if !connStart.IsZero() {
 				connDuration = time.Since(connStart)
-				AgentConnectionTime.WithLabelValues(e.useCaseID, fmt.Sprintf("%v", e.connectionPooled)).Observe(connDuration.Seconds())
+				AgentConnectionTime.WithLabelValues(e.targetProtocol, e.useCaseID, fmt.Sprintf("%v", e.connectionPooled)).Observe(connDuration.Seconds())
 			}
 		},
 		TLSHandshakeStart: func() {
@@ -155,7 +157,7 @@ func (e *HTTPExecutor) Execute(ctx context.Context) error {
 	}
 
 	if err != nil {
-		AgentErrorsTotal.WithLabelValues(e.useCaseID, "request_creation", fmt.Sprintf("%v", e.connectionPooled)).Inc()
+		AgentErrorsTotal.WithLabelValues(e.targetProtocol, e.useCaseID, "request_creation", fmt.Sprintf("%v", e.connectionPooled)).Inc()
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
@@ -177,36 +179,36 @@ func (e *HTTPExecutor) Execute(ctx context.Context) error {
 	resp, err := client.Do(req)
 	if err != nil {
 		duration := time.Since(start).Seconds()
-		AgentErrorsTotal.WithLabelValues(e.useCaseID, "request_failed", fmt.Sprintf("%v", e.connectionPooled)).Inc()
-		AgentRequestDuration.WithLabelValues(e.useCaseID, e.method, "error", fmt.Sprintf("%v", e.connectionPooled)).Observe(duration)
-		AgentRequestsTotal.WithLabelValues(e.useCaseID, e.method, "error", fmt.Sprintf("%v", e.connectionPooled)).Inc()
+		AgentErrorsTotal.WithLabelValues(e.targetProtocol, e.useCaseID, "request_failed", fmt.Sprintf("%v", e.connectionPooled)).Inc()
+		AgentRequestDuration.WithLabelValues(e.targetProtocol, e.useCaseID, e.method, "error", fmt.Sprintf("%v", e.connectionPooled)).Observe(duration)
+		AgentRequestsTotal.WithLabelValues(e.targetProtocol, e.useCaseID, e.method, "error", fmt.Sprintf("%v", e.connectionPooled)).Inc()
 		return fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	// Record response time (time to first byte)
 	responseTime := time.Since(responseStart).Seconds()
-	AgentResponseTime.WithLabelValues(e.useCaseID, fmt.Sprintf("%v", e.connectionPooled)).Observe(responseTime)
+	AgentResponseTime.WithLabelValues(e.targetProtocol, e.useCaseID, fmt.Sprintf("%v", e.connectionPooled)).Observe(responseTime)
 
 	// Read response body
 	_, err = io.Copy(io.Discard, resp.Body)
 	if err != nil {
-		AgentErrorsTotal.WithLabelValues(e.useCaseID, "response_read", fmt.Sprintf("%v", e.connectionPooled)).Inc()
+		AgentErrorsTotal.WithLabelValues(e.targetProtocol, e.useCaseID, "response_read", fmt.Sprintf("%v", e.connectionPooled)).Inc()
 	}
 
 	// Record metrics
 	duration := time.Since(start).Seconds()
 	statusCode := fmt.Sprintf("%d", resp.StatusCode)
 
-	AgentRequestDuration.WithLabelValues(e.useCaseID, e.method, statusCode, fmt.Sprintf("%v", e.connectionPooled)).Observe(duration)
-	AgentProcessingTime.WithLabelValues(e.useCaseID, fmt.Sprintf("%v", e.connectionPooled)).Observe(duration)
-	AgentRequestsTotal.WithLabelValues(e.useCaseID, e.method, statusCode, fmt.Sprintf("%v", e.connectionPooled)).Inc()
+	AgentRequestDuration.WithLabelValues(e.targetProtocol, e.useCaseID, e.method, statusCode, fmt.Sprintf("%v", e.connectionPooled)).Observe(duration)
+	AgentProcessingTime.WithLabelValues(e.targetProtocol, e.useCaseID, fmt.Sprintf("%v", e.connectionPooled)).Observe(duration)
+	AgentRequestsTotal.WithLabelValues(e.targetProtocol, e.useCaseID, e.method, statusCode, fmt.Sprintf("%v", e.connectionPooled)).Inc()
 
 	// Record success/error
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		AgentSuccessTotal.WithLabelValues(e.useCaseID, fmt.Sprintf("%v", e.connectionPooled)).Inc()
+		AgentSuccessTotal.WithLabelValues(e.targetProtocol, e.useCaseID, fmt.Sprintf("%v", e.connectionPooled)).Inc()
 	} else {
-		AgentErrorsTotal.WithLabelValues(e.useCaseID, fmt.Sprintf("http_%d", resp.StatusCode), fmt.Sprintf("%v", e.connectionPooled)).Inc()
+		AgentErrorsTotal.WithLabelValues(e.targetProtocol, e.useCaseID, fmt.Sprintf("http_%d", resp.StatusCode), fmt.Sprintf("%v", e.connectionPooled)).Inc()
 	}
 
 	return nil
