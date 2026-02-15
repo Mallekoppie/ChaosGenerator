@@ -16,10 +16,10 @@ func UC1Handler(w http.ResponseWriter, r *http.Request) {
 
 	defer func() {
 		duration := time.Since(start).Seconds()
-		RequestDuration.WithLabelValues(useCase, r.Method, "200").Observe(duration)
-		ProcessingTime.WithLabelValues(useCase).Observe(duration)
-		RequestsTotal.WithLabelValues(useCase, r.Method, "200").Inc()
-		SuccessTotal.WithLabelValues(useCase).Inc()
+		RequestDuration.WithLabelValues("http", useCase, r.Method, "200").Observe(duration)
+		ProcessingTime.WithLabelValues("http", useCase).Observe(duration)
+		RequestsTotal.WithLabelValues("http", useCase, r.Method, "200").Inc()
+		SuccessTotal.WithLabelValues("http", useCase).Inc()
 	}()
 
 	w.WriteHeader(http.StatusOK)
@@ -33,10 +33,10 @@ func UC2Handler(w http.ResponseWriter, r *http.Request) {
 
 	defer func() {
 		duration := time.Since(start).Seconds()
-		RequestDuration.WithLabelValues(useCase, r.Method, "200").Observe(duration)
-		ProcessingTime.WithLabelValues(useCase).Observe(duration)
-		RequestsTotal.WithLabelValues(useCase, r.Method, "200").Inc()
-		SuccessTotal.WithLabelValues(useCase).Inc()
+		RequestDuration.WithLabelValues("http", useCase, r.Method, "200").Observe(duration)
+		ProcessingTime.WithLabelValues("http", useCase).Observe(duration)
+		RequestsTotal.WithLabelValues("http", useCase, r.Method, "200").Inc()
+		SuccessTotal.WithLabelValues("http", useCase).Inc()
 	}()
 
 	response := map[string]interface{}{
@@ -60,10 +60,10 @@ func UC3Handler(w http.ResponseWriter, r *http.Request) {
 
 	defer func() {
 		duration := time.Since(start).Seconds()
-		RequestDuration.WithLabelValues(useCase, r.Method, "200").Observe(duration)
-		ProcessingTime.WithLabelValues(useCase).Observe(duration)
-		RequestsTotal.WithLabelValues(useCase, r.Method, "200").Inc()
-		SuccessTotal.WithLabelValues(useCase).Inc()
+		RequestDuration.WithLabelValues("http", useCase, r.Method, "200").Observe(duration)
+		ProcessingTime.WithLabelValues("http", useCase).Observe(duration)
+		RequestsTotal.WithLabelValues("http", useCase, r.Method, "200").Inc()
+		SuccessTotal.WithLabelValues("http", useCase).Inc()
 	}()
 
 	// Extract user ID from path
@@ -106,16 +106,16 @@ func UC4Handler(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		duration := time.Since(start).Seconds()
 		statusCode := "201"
-		RequestDuration.WithLabelValues(useCase, r.Method, statusCode).Observe(duration)
-		ProcessingTime.WithLabelValues(useCase).Observe(duration)
-		RequestsTotal.WithLabelValues(useCase, r.Method, statusCode).Inc()
-		SuccessTotal.WithLabelValues(useCase).Inc()
+		RequestDuration.WithLabelValues("http", useCase, r.Method, statusCode).Observe(duration)
+		ProcessingTime.WithLabelValues("http", useCase).Observe(duration)
+		RequestsTotal.WithLabelValues("http", useCase, r.Method, statusCode).Inc()
+		SuccessTotal.WithLabelValues("http", useCase).Inc()
 	}()
 
 	// Read request body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		ErrorsTotal.WithLabelValues(useCase, "read_error").Inc()
+		ErrorsTotal.WithLabelValues("http", useCase, "read_error").Inc()
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 		return
 	}
@@ -124,7 +124,7 @@ func UC4Handler(w http.ResponseWriter, r *http.Request) {
 	// Parse request
 	var request map[string]interface{}
 	if err := json.Unmarshal(body, &request); err != nil {
-		ErrorsTotal.WithLabelValues(useCase, "parse_error").Inc()
+		ErrorsTotal.WithLabelValues("http", useCase, "parse_error").Inc()
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
@@ -162,10 +162,10 @@ func UC5Handler(w http.ResponseWriter, r *http.Request) {
 
 	defer func() {
 		duration := time.Since(start).Seconds()
-		RequestDuration.WithLabelValues(useCase, r.Method, "200").Observe(duration)
-		ProcessingTime.WithLabelValues(useCase).Observe(duration)
-		RequestsTotal.WithLabelValues(useCase, r.Method, "200").Inc()
-		SuccessTotal.WithLabelValues(useCase).Inc()
+		RequestDuration.WithLabelValues("http", useCase, r.Method, "200").Observe(duration)
+		ProcessingTime.WithLabelValues("http", useCase).Observe(duration)
+		RequestsTotal.WithLabelValues("http", useCase, r.Method, "200").Inc()
+		SuccessTotal.WithLabelValues("http", useCase).Inc()
 	}()
 
 	// Generate 50 users for collection response
@@ -212,16 +212,16 @@ func UC6Handler(w http.ResponseWriter, r *http.Request) {
 
 	defer func() {
 		duration := time.Since(start).Seconds()
-		RequestDuration.WithLabelValues(useCase, r.Method, "200").Observe(duration)
-		ProcessingTime.WithLabelValues(useCase).Observe(duration)
-		RequestsTotal.WithLabelValues(useCase, r.Method, "200").Inc()
-		SuccessTotal.WithLabelValues(useCase).Inc()
+		RequestDuration.WithLabelValues("http", useCase, r.Method, "200").Observe(duration)
+		ProcessingTime.WithLabelValues("http", useCase).Observe(duration)
+		RequestsTotal.WithLabelValues("http", useCase, r.Method, "200").Inc()
+		SuccessTotal.WithLabelValues("http", useCase).Inc()
 	}()
 
 	// Read request body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		ErrorsTotal.WithLabelValues(useCase, "read_error").Inc()
+		ErrorsTotal.WithLabelValues("http", useCase, "read_error").Inc()
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 		return
 	}
@@ -230,7 +230,7 @@ func UC6Handler(w http.ResponseWriter, r *http.Request) {
 	// Parse request
 	var request map[string]interface{}
 	if err := json.Unmarshal(body, &request); err != nil {
-		ErrorsTotal.WithLabelValues(useCase, "parse_error").Inc()
+		ErrorsTotal.WithLabelValues("http", useCase, "parse_error").Inc()
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
@@ -278,16 +278,16 @@ func UC7Handler(w http.ResponseWriter, r *http.Request) {
 
 	defer func() {
 		duration := time.Since(start).Seconds()
-		RequestDuration.WithLabelValues(useCase, r.Method, "200").Observe(duration)
-		ProcessingTime.WithLabelValues(useCase).Observe(duration)
-		RequestsTotal.WithLabelValues(useCase, r.Method, "200").Inc()
-		SuccessTotal.WithLabelValues(useCase).Inc()
+		RequestDuration.WithLabelValues("http", useCase, r.Method, "200").Observe(duration)
+		ProcessingTime.WithLabelValues("http", useCase).Observe(duration)
+		RequestsTotal.WithLabelValues("http", useCase, r.Method, "200").Inc()
+		SuccessTotal.WithLabelValues("http", useCase).Inc()
 	}()
 
 	// Read request body (not used but must be read to consume the stream)
 	_, err := io.ReadAll(r.Body)
 	if err != nil {
-		ErrorsTotal.WithLabelValues(useCase, "read_error").Inc()
+		ErrorsTotal.WithLabelValues("http", useCase, "read_error").Inc()
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 		return
 	}
@@ -333,16 +333,16 @@ func UC8Handler(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		duration := time.Since(start).Seconds()
 		statusCode := "201"
-		RequestDuration.WithLabelValues(useCase, r.Method, statusCode).Observe(duration)
-		ProcessingTime.WithLabelValues(useCase).Observe(duration)
-		RequestsTotal.WithLabelValues(useCase, r.Method, statusCode).Inc()
-		SuccessTotal.WithLabelValues(useCase).Inc()
+		RequestDuration.WithLabelValues("http", useCase, r.Method, statusCode).Observe(duration)
+		ProcessingTime.WithLabelValues("http", useCase).Observe(duration)
+		RequestsTotal.WithLabelValues("http", useCase, r.Method, statusCode).Inc()
+		SuccessTotal.WithLabelValues("http", useCase).Inc()
 	}()
 
 	// Read large request body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		ErrorsTotal.WithLabelValues(useCase, "read_error").Inc()
+		ErrorsTotal.WithLabelValues("http", useCase, "read_error").Inc()
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 		return
 	}
@@ -370,10 +370,10 @@ func UC9Handler(w http.ResponseWriter, r *http.Request) {
 
 	defer func() {
 		duration := time.Since(start).Seconds()
-		RequestDuration.WithLabelValues(useCase, r.Method, "200").Observe(duration)
-		ProcessingTime.WithLabelValues(useCase).Observe(duration)
-		RequestsTotal.WithLabelValues(useCase, r.Method, "200").Inc()
-		SuccessTotal.WithLabelValues(useCase).Inc()
+		RequestDuration.WithLabelValues("http", useCase, r.Method, "200").Observe(duration)
+		ProcessingTime.WithLabelValues("http", useCase).Observe(duration)
+		RequestsTotal.WithLabelValues("http", useCase, r.Method, "200").Inc()
+		SuccessTotal.WithLabelValues("http", useCase).Inc()
 	}()
 
 	// Generate large dataset (25-50MB)
@@ -411,16 +411,16 @@ func UC10Handler(w http.ResponseWriter, r *http.Request) {
 
 	defer func() {
 		duration := time.Since(start).Seconds()
-		RequestDuration.WithLabelValues(useCase, r.Method, "200").Observe(duration)
-		ProcessingTime.WithLabelValues(useCase).Observe(duration)
-		RequestsTotal.WithLabelValues(useCase, r.Method, "200").Inc()
-		SuccessTotal.WithLabelValues(useCase).Inc()
+		RequestDuration.WithLabelValues("http", useCase, r.Method, "200").Observe(duration)
+		ProcessingTime.WithLabelValues("http", useCase).Observe(duration)
+		RequestsTotal.WithLabelValues("http", useCase, r.Method, "200").Inc()
+		SuccessTotal.WithLabelValues("http", useCase).Inc()
 	}()
 
 	// Read large request body (100-250MB)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		ErrorsTotal.WithLabelValues(useCase, "read_error").Inc()
+		ErrorsTotal.WithLabelValues("http", useCase, "read_error").Inc()
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 		return
 	}
@@ -472,16 +472,16 @@ func UC11Handler(w http.ResponseWriter, r *http.Request) {
 
 	defer func() {
 		duration := time.Since(start).Seconds()
-		RequestDuration.WithLabelValues(useCase, r.Method, "200").Observe(duration)
-		ProcessingTime.WithLabelValues(useCase).Observe(duration)
-		RequestsTotal.WithLabelValues(useCase, r.Method, "200").Inc()
-		SuccessTotal.WithLabelValues(useCase).Inc()
+		RequestDuration.WithLabelValues("http", useCase, r.Method, "200").Observe(duration)
+		ProcessingTime.WithLabelValues("http", useCase).Observe(duration)
+		RequestsTotal.WithLabelValues("http", useCase, r.Method, "200").Inc()
+		SuccessTotal.WithLabelValues("http", useCase).Inc()
 	}()
 
 	// Read request body
 	_, err := io.ReadAll(r.Body)
 	if err != nil {
-		ErrorsTotal.WithLabelValues(useCase, "read_error").Inc()
+		ErrorsTotal.WithLabelValues("http", useCase, "read_error").Inc()
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 		return
 	}

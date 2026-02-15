@@ -31,10 +31,10 @@ func (s *ChaosTargetService) HealthCheck(ctx context.Context, req *contracts.Hea
 
 	defer func() {
 		duration := time.Since(start).Seconds()
-		RequestDuration.WithLabelValues(useCaseID, "HealthCheck", "OK").Observe(duration)
-		RequestsTotal.WithLabelValues(useCaseID, "HealthCheck", "OK").Inc()
-		ProcessingTime.WithLabelValues(useCaseID).Observe(duration)
-		SuccessTotal.WithLabelValues(useCaseID).Inc()
+		RequestDuration.WithLabelValues("grpc", useCaseID, "HealthCheck", "OK").Observe(duration)
+		RequestsTotal.WithLabelValues("grpc", useCaseID, "HealthCheck", "OK").Inc()
+		ProcessingTime.WithLabelValues("grpc", useCaseID).Observe(duration)
+		SuccessTotal.WithLabelValues("grpc", useCaseID).Inc()
 	}()
 
 	return &contracts.HealthCheckResponse{
@@ -49,10 +49,10 @@ func (s *ChaosTargetService) GetStatus(ctx context.Context, req *contracts.GetSt
 
 	defer func() {
 		duration := time.Since(start).Seconds()
-		RequestDuration.WithLabelValues(useCaseID, "GetStatus", "OK").Observe(duration)
-		RequestsTotal.WithLabelValues(useCaseID, "GetStatus", "OK").Inc()
-		ProcessingTime.WithLabelValues(useCaseID).Observe(duration)
-		SuccessTotal.WithLabelValues(useCaseID).Inc()
+		RequestDuration.WithLabelValues("grpc", useCaseID, "GetStatus", "OK").Observe(duration)
+		RequestsTotal.WithLabelValues("grpc", useCaseID, "GetStatus", "OK").Inc()
+		ProcessingTime.WithLabelValues("grpc", useCaseID).Observe(duration)
+		SuccessTotal.WithLabelValues("grpc", useCaseID).Inc()
 	}()
 
 	uptime := int64(time.Since(s.startTime).Seconds())
@@ -74,10 +74,10 @@ func (s *ChaosTargetService) GetUser(ctx context.Context, req *contracts.GetUser
 
 	defer func() {
 		duration := time.Since(start).Seconds()
-		RequestDuration.WithLabelValues(useCaseID, "GetUser", "OK").Observe(duration)
-		RequestsTotal.WithLabelValues(useCaseID, "GetUser", "OK").Inc()
-		ProcessingTime.WithLabelValues(useCaseID).Observe(duration)
-		SuccessTotal.WithLabelValues(useCaseID).Inc()
+		RequestDuration.WithLabelValues("grpc", useCaseID, "GetUser", "OK").Observe(duration)
+		RequestsTotal.WithLabelValues("grpc", useCaseID, "GetUser", "OK").Inc()
+		ProcessingTime.WithLabelValues("grpc", useCaseID).Observe(duration)
+		SuccessTotal.WithLabelValues("grpc", useCaseID).Inc()
 	}()
 
 	return &contracts.GetUserResponse{
@@ -108,10 +108,10 @@ func (s *ChaosTargetService) CreateUser(ctx context.Context, req *contracts.Crea
 
 	defer func() {
 		duration := time.Since(start).Seconds()
-		RequestDuration.WithLabelValues(useCaseID, "CreateUser", "OK").Observe(duration)
-		RequestsTotal.WithLabelValues(useCaseID, "CreateUser", "OK").Inc()
-		ProcessingTime.WithLabelValues(useCaseID).Observe(duration)
-		SuccessTotal.WithLabelValues(useCaseID).Inc()
+		RequestDuration.WithLabelValues("grpc", useCaseID, "CreateUser", "OK").Observe(duration)
+		RequestsTotal.WithLabelValues("grpc", useCaseID, "CreateUser", "OK").Inc()
+		ProcessingTime.WithLabelValues("grpc", useCaseID).Observe(duration)
+		SuccessTotal.WithLabelValues("grpc", useCaseID).Inc()
 	}()
 
 	// Generate a new user ID
@@ -144,10 +144,10 @@ func (s *ChaosTargetService) ListUsers(ctx context.Context, req *contracts.ListU
 
 	defer func() {
 		duration := time.Since(start).Seconds()
-		RequestDuration.WithLabelValues(useCaseID, "ListUsers", "OK").Observe(duration)
-		RequestsTotal.WithLabelValues(useCaseID, "ListUsers", "OK").Inc()
-		ProcessingTime.WithLabelValues(useCaseID).Observe(duration)
-		SuccessTotal.WithLabelValues(useCaseID).Inc()
+		RequestDuration.WithLabelValues("grpc", useCaseID, "ListUsers", "OK").Observe(duration)
+		RequestsTotal.WithLabelValues("grpc", useCaseID, "ListUsers", "OK").Inc()
+		ProcessingTime.WithLabelValues("grpc", useCaseID).Observe(duration)
+		SuccessTotal.WithLabelValues("grpc", useCaseID).Inc()
 	}()
 
 	// Generate user list based on pagination
@@ -185,10 +185,10 @@ func (s *ChaosTargetService) BulkUpdate(ctx context.Context, req *contracts.Bulk
 
 	defer func() {
 		duration := time.Since(start).Seconds()
-		RequestDuration.WithLabelValues(useCaseID, "BulkUpdate", "OK").Observe(duration)
-		RequestsTotal.WithLabelValues(useCaseID, "BulkUpdate", "OK").Inc()
-		ProcessingTime.WithLabelValues(useCaseID).Observe(duration)
-		SuccessTotal.WithLabelValues(useCaseID).Inc()
+		RequestDuration.WithLabelValues("grpc", useCaseID, "BulkUpdate", "OK").Observe(duration)
+		RequestsTotal.WithLabelValues("grpc", useCaseID, "BulkUpdate", "OK").Inc()
+		ProcessingTime.WithLabelValues("grpc", useCaseID).Observe(duration)
+		SuccessTotal.WithLabelValues("grpc", useCaseID).Inc()
 	}()
 
 	updateCount := len(req.Updates)
@@ -230,10 +230,10 @@ func (s *ChaosTargetService) GenerateReport(ctx context.Context, req *contracts.
 
 	defer func() {
 		duration := time.Since(start).Seconds()
-		RequestDuration.WithLabelValues(useCaseID, "GenerateReport", "OK").Observe(duration)
-		RequestsTotal.WithLabelValues(useCaseID, "GenerateReport", "OK").Inc()
-		ProcessingTime.WithLabelValues(useCaseID).Observe(duration)
-		SuccessTotal.WithLabelValues(useCaseID).Inc()
+		RequestDuration.WithLabelValues("grpc", useCaseID, "GenerateReport", "OK").Observe(duration)
+		RequestsTotal.WithLabelValues("grpc", useCaseID, "GenerateReport", "OK").Inc()
+		ProcessingTime.WithLabelValues("grpc", useCaseID).Observe(duration)
+		SuccessTotal.WithLabelValues("grpc", useCaseID).Inc()
 	}()
 
 	// Simulate CPU-intensive work
@@ -262,11 +262,11 @@ func (s *ChaosTargetService) UploadDocument(ctx context.Context, req *contracts.
 
 	defer func() {
 		duration := time.Since(start).Seconds()
-		RequestDuration.WithLabelValues(useCaseID, "UploadDocument", "OK").Observe(duration)
-		RequestsTotal.WithLabelValues(useCaseID, "UploadDocument", "OK").Inc()
-		ProcessingTime.WithLabelValues(useCaseID).Observe(duration)
-		SuccessTotal.WithLabelValues(useCaseID).Inc()
-		RequestSize.WithLabelValues(useCaseID).Observe(float64(len(req.Data)))
+		RequestDuration.WithLabelValues("grpc", useCaseID, "UploadDocument", "OK").Observe(duration)
+		RequestsTotal.WithLabelValues("grpc", useCaseID, "UploadDocument", "OK").Inc()
+		ProcessingTime.WithLabelValues("grpc", useCaseID).Observe(duration)
+		SuccessTotal.WithLabelValues("grpc", useCaseID).Inc()
+		RequestSize.WithLabelValues("grpc", useCaseID).Observe(float64(len(req.Data)))
 	}()
 
 	// Simulate processing time for large file
@@ -292,10 +292,10 @@ func (s *ChaosTargetService) ExportData(req *contracts.ExportDataRequest, stream
 
 	defer func() {
 		duration := time.Since(start).Seconds()
-		RequestDuration.WithLabelValues(useCaseID, "ExportData", "OK").Observe(duration)
-		RequestsTotal.WithLabelValues(useCaseID, "ExportData", "OK").Inc()
-		ProcessingTime.WithLabelValues(useCaseID).Observe(duration)
-		SuccessTotal.WithLabelValues(useCaseID).Inc()
+		RequestDuration.WithLabelValues("grpc", useCaseID, "ExportData", "OK").Observe(duration)
+		RequestsTotal.WithLabelValues("grpc", useCaseID, "ExportData", "OK").Inc()
+		ProcessingTime.WithLabelValues("grpc", useCaseID).Observe(duration)
+		SuccessTotal.WithLabelValues("grpc", useCaseID).Inc()
 	}()
 
 	// Generate large dataset and stream in chunks
@@ -322,7 +322,7 @@ func (s *ChaosTargetService) ExportData(req *contracts.ExportDataRequest, stream
 		}
 
 		if err := stream.Send(response); err != nil {
-			ErrorsTotal.WithLabelValues(useCaseID, "stream_error").Inc()
+			ErrorsTotal.WithLabelValues("grpc", useCaseID, "stream_error").Inc()
 			return status.Errorf(codes.Internal, "failed to send chunk: %v", err)
 		}
 
@@ -340,11 +340,11 @@ func (s *ChaosTargetService) ProcessData(ctx context.Context, req *contracts.Pro
 
 	defer func() {
 		duration := time.Since(start).Seconds()
-		RequestDuration.WithLabelValues(useCaseID, "ProcessData", "OK").Observe(duration)
-		RequestsTotal.WithLabelValues(useCaseID, "ProcessData", "OK").Inc()
-		ProcessingTime.WithLabelValues(useCaseID).Observe(duration)
-		SuccessTotal.WithLabelValues(useCaseID).Inc()
-		RequestSize.WithLabelValues(useCaseID).Observe(float64(len(req.Records)) * 200) // Approximate size
+		RequestDuration.WithLabelValues("grpc", useCaseID, "ProcessData", "OK").Observe(duration)
+		RequestsTotal.WithLabelValues("grpc", useCaseID, "ProcessData", "OK").Inc()
+		ProcessingTime.WithLabelValues("grpc", useCaseID).Observe(duration)
+		SuccessTotal.WithLabelValues("grpc", useCaseID).Inc()
+		RequestSize.WithLabelValues("grpc", useCaseID).Observe(float64(len(req.Records)) * 200) // Approximate size
 	}()
 
 	// Simulate processing time
@@ -382,10 +382,10 @@ func (s *ChaosTargetService) StreamAnalytics(ctx context.Context, req *contracts
 
 	defer func() {
 		duration := time.Since(start).Seconds()
-		RequestDuration.WithLabelValues(useCaseID, "StreamAnalytics", "OK").Observe(duration)
-		RequestsTotal.WithLabelValues(useCaseID, "StreamAnalytics", "OK").Inc()
-		ProcessingTime.WithLabelValues(useCaseID).Observe(duration)
-		SuccessTotal.WithLabelValues(useCaseID).Inc()
+		RequestDuration.WithLabelValues("grpc", useCaseID, "StreamAnalytics", "OK").Observe(duration)
+		RequestsTotal.WithLabelValues("grpc", useCaseID, "StreamAnalytics", "OK").Inc()
+		ProcessingTime.WithLabelValues("grpc", useCaseID).Observe(duration)
+		SuccessTotal.WithLabelValues("grpc", useCaseID).Inc()
 	}()
 
 	// Simulate buffer allocation and processing

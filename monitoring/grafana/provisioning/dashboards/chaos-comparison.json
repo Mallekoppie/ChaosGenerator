@@ -268,8 +268,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.50, sum by (le, use_case) (rate(chaos_target_http_request_duration_seconds_bucket[5m])))",
-          "legendFormat": "p50 - {{use_case}}",
+          "expr": "histogram_quantile(0.50, sum by (le, target_type, use_case) (rate(chaos_target_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50 - {{target_type}} - {{use_case}}",
           "refId": "A"
         },
         {
@@ -277,8 +277,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, use_case) (rate(chaos_target_http_request_duration_seconds_bucket[5m])))",
-          "legendFormat": "p95 - {{use_case}}",
+          "expr": "histogram_quantile(0.95, sum by (le, target_type, use_case) (rate(chaos_target_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95 - {{target_type}} - {{use_case}}",
           "refId": "B"
         },
         {
@@ -286,8 +286,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.99, sum by (le, use_case) (rate(chaos_target_http_request_duration_seconds_bucket[5m])))",
-          "legendFormat": "p99 - {{use_case}}",
+          "expr": "histogram_quantile(0.99, sum by (le, target_type, use_case) (rate(chaos_target_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p99 - {{target_type}} - {{use_case}}",
           "refId": "C"
         }
       ],
@@ -487,8 +487,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, use_case) (rate(chaos_target_http_processing_time_seconds_bucket[5m])))",
-          "legendFormat": "p95 Processing - {{use_case}}",
+          "expr": "histogram_quantile(0.95, sum by (le, target_type, use_case) (rate(chaos_target_processing_time_seconds_bucket[5m])))",
+          "legendFormat": "p95 Processing - {{target_type}} - {{use_case}}",
           "refId": "A"
         },
         {
@@ -496,8 +496,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.99, sum by (le, use_case) (rate(chaos_target_http_processing_time_seconds_bucket[5m])))",
-          "legendFormat": "p99 Processing - {{use_case}}",
+          "expr": "histogram_quantile(0.99, sum by (le, target_type, use_case) (rate(chaos_target_processing_time_seconds_bucket[5m])))",
+          "legendFormat": "p99 Processing - {{target_type}} - {{use_case}}",
           "refId": "B"
         }
       ],
@@ -698,8 +698,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (use_case, method, status_code) (rate(chaos_target_http_requests_total[1m]))",
-          "legendFormat": "{{use_case}} {{method}} {{status_code}}",
+          "expr": "sum by (target_type, use_case, method, status_code) (rate(chaos_target_requests_total[1m]))",
+          "legendFormat": "{{target_type}} - {{use_case}} {{method}} {{status_code}}",
           "refId": "A"
         }
       ],
@@ -892,8 +892,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (use_case) (rate(chaos_target_http_success_total[1m]))",
-          "legendFormat": "{{use_case}}",
+          "expr": "sum by (target_type, use_case) (rate(chaos_target_success_total[1m]))",
+          "legendFormat": "{{target_type}} - {{use_case}}",
           "refId": "A"
         }
       ],
@@ -1095,8 +1095,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(chaos_target_http_success_total[5m])) / sum(rate(chaos_target_http_requests_total[5m]))",
-          "legendFormat": "Success Rate",
+          "expr": "sum by (target_type) (rate(chaos_target_success_total[5m])) / sum by (target_type) (rate(chaos_target_requests_total[5m]))",
+          "legendFormat": "{{target_type}}",
           "refId": "A"
         }
       ],
@@ -1160,8 +1160,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(chaos_target_http_errors_total[5m])) / sum(rate(chaos_target_http_requests_total[5m]))",
-          "legendFormat": "Error Rate",
+          "expr": "sum by (target_type) (rate(chaos_target_errors_total[5m])) / sum by (target_type) (rate(chaos_target_requests_total[5m]))",
+          "legendFormat": "{{target_type}}",
           "refId": "A"
         }
       ],
@@ -1347,9 +1347,9 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (le) (increase(chaos_target_http_request_duration_seconds_bucket[5m]))",
+          "expr": "sum by (le, target_type) (increase(chaos_target_request_duration_seconds_bucket[5m]))",
           "format": "heatmap",
-          "legendFormat": "≤ {{le}}s",
+          "legendFormat": "{{target_type}} - ≤ {{le}}s",
           "refId": "A"
         }
       ],
