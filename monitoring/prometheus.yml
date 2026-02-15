@@ -32,6 +32,14 @@ scrape_configs:
           protocol: 'http2'
           tls: 'true'
 
+  # Target gRPC Service
+  - job_name: 'target-grpc'
+    static_configs:
+      - targets: ['host.docker.internal:9095']
+        labels:
+          service: 'target-grpc'
+          protocol: 'grpc'
+
   - job_name: 'chaos-agents'
     static_configs:
       - targets: ['host.docker.internal:9096', 'host.docker.internal:9097']

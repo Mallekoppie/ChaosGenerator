@@ -45,3 +45,4 @@ bin/chaos-client.exe~
 chaos_master.db
 chaos_master.db.lock
 certs/*
+bin/*

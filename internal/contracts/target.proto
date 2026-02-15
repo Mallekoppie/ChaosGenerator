@@ -1,0 +1,381 @@
+syntax = "proto3";
+
+package contracts;
+
+option go_package = "mallekoppie/ChaosGenerator/internal/contracts";
+
+// ChaosTarget service defines all use cases for load testing
+service ChaosTarget {
+  // UC1: Health Check - Minimal overhead operation
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+  
+  // UC2: Status - Lightweight JSON serialization
+  rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
+  
+  // UC3: Simple Query - Standard read operation
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+  
+  // UC4: Create Resource - Write operation with validation
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
+  
+  // UC5: List Collection - Pagination and filtering
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+  
+  // UC6: Bulk Update - Batch processing
+  rpc BulkUpdate(BulkUpdateRequest) returns (BulkUpdateResponse);
+  
+  // UC7: Report Generation - CPU-intensive operation
+  rpc GenerateReport(GenerateReportRequest) returns (GenerateReportResponse);
+  
+  // UC8: File Upload - Large request payload
+  rpc UploadDocument(UploadDocumentRequest) returns (UploadDocumentResponse);
+  
+  // UC9: Data Export - Large response payload with streaming
+  rpc ExportData(ExportDataRequest) returns (stream ExportDataResponse);
+  
+  // UC10: Network Saturation - Extreme payload sizes
+  rpc ProcessData(ProcessDataRequest) returns (ProcessDataResponse);
+  
+  // UC11: Stream Analytics - Memory pressure testing
+  rpc StreamAnalytics(StreamAnalyticsRequest) returns (StreamAnalyticsResponse);
+}
+
+// UC1: Health Check
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  string status = 1;
+}
+
+// UC2: Status
+message GetStatusRequest {}
+
+message GetStatusResponse {
+  string service = 1;
+  string version = 2;
+  string status = 3;
+  string timestamp = 4;
+  int64 uptime = 5;
+  bool ready = 6;
+}
+
+// UC3: Get User
+message GetUserRequest {
+  string user_id = 1;
+}
+
+message UserPreferences {
+  string theme = 1;
+  string language = 2;
+  string timezone = 3;
+}
+
+message UserMetadata {
+  string account_type = 1;
+  bool verified = 2;
+}
+
+message GetUserResponse {
+  string id = 1;
+  string username = 2;
+  string email = 3;
+  string first_name = 4;
+  string last_name = 5;
+  string created = 6;
+  string last_login = 7;
+  repeated string roles = 8;
+  UserPreferences preferences = 9;
+  UserMetadata metadata = 10;
+}
+
+// UC4: Create User
+message CreateUserRequest {
+  string username = 1;
+  string email = 2;
+  string first_name = 3;
+  string last_name = 4;
+  string password = 5;
+  repeated string roles = 6;
+  UserPreferences preferences = 7;
+}
+
+message CreateUserResponse {
+  string id = 1;
+  string username = 2;
+  string email = 3;
+  string first_name = 4;
+  string last_name = 5;
+  string created = 6;
+  repeated string roles = 7;
+  UserPreferences preferences = 8;
+  UserMetadata metadata = 9;
+}
+
+// UC5: List Users
+message ListUsersRequest {
+  int32 page = 1;
+  int32 limit = 2;
+  string filter = 3;
+}
+
+message UserSummary {
+  string id = 1;
+  string username = 2;
+  string email = 3;
+  string first_name = 4;
+  string last_name = 5;
+}
+
+message PaginationMetadata {
+  int32 page = 1;
+  int32 limit = 2;
+  int32 total = 3;
+  int32 pages = 4;
+}
+
+message ListMetadata {
+  string timestamp = 1;
+  int32 duration = 2;
+}
+
+message ListUsersResponse {
+  repeated UserSummary data = 1;
+  PaginationMetadata pagination = 2;
+  ListMetadata metadata = 3;
+}
+
+// UC6: Bulk Update
+message UpdateOperation {
+  string id = 1;
+  map<string, string> fields = 2;
+}
+
+message BulkUpdateOptions {
+  bool validate_all = 1;
+  bool atomic = 2;
+}
+
+message BulkUpdateRequest {
+  repeated UpdateOperation updates = 1;
+  BulkUpdateOptions options = 2;
+}
+
+message UpdateResult {
+  string id = 1;
+  string status = 2;
+  string error = 3;
+}
+
+message BulkUpdateResponse {
+  int32 processed = 1;
+  int32 successful = 2;
+  int32 failed = 3;
+  repeated UpdateResult results = 4;
+  int32 duration = 5;
+}
+
+// UC7: Generate Report
+message DateRange {
+  string start = 1;
+  string end = 2;
+}
+
+message ReportFilters {
+  repeated string status = 1;
+  double min_amount = 2;
+}
+
+message GenerateReportRequest {
+  string report_type = 1;
+  DateRange date_range = 2;
+  ReportFilters filters = 3;
+  string format = 4;
+  repeated string group_by = 5;
+  bool include_details = 6;
+}
+
+message ReportSummary {
+  int32 total_transactions = 1;
+  double total_amount = 2;
+  double average_amount = 3;
+}
+
+message ReportDataPoint {
+  string date = 1;
+  string category = 2;
+  int32 transactions = 3;
+  double amount = 4;
+  bytes details = 5; // Serialized details for larger payload
+}
+
+message GenerateReportResponse {
+  string report_id = 1;
+  string generated = 2;
+  DateRange date_range = 3;
+  ReportSummary summary = 4;
+  repeated ReportDataPoint data = 5;
+}
+
+// UC8: Upload Document
+message DocumentMetadata {
+  string author = 1;
+  string created = 2;
+  repeated string tags = 3;
+}
+
+message UploadDocumentRequest {
+  string filename = 1;
+  string content_type = 2;
+  int64 size = 3;
+  DocumentMetadata metadata = 4;
+  bytes data = 5;
+  string checksum = 6;
+}
+
+message UploadDocumentResponse {
+  string document_id = 1;
+  string filename = 2;
+  int64 size = 3;
+  string uploaded = 4;
+  string url = 5;
+  string checksum = 6;
+  string status = 7;
+}
+
+// UC9: Export Data
+message ExportDataRequest {
+  string start_date = 1;
+  string end_date = 2;
+  string format = 3;
+}
+
+message TransactionRecord {
+  string transaction_id = 1;
+  string timestamp = 2;
+  double amount = 3;
+  string currency = 4;
+  string merchant = 5;
+  string category = 6;
+  string status = 7;
+  bytes metadata = 8;
+}
+
+message ExportDataResponse {
+  string export_id = 1;
+  string generated = 2;
+  int32 record_count = 3;
+  string format = 4;
+  repeated TransactionRecord data = 5;
+  bool is_final_chunk = 6;
+}
+
+// UC10: Process Data
+message SensorValues {
+  double temperature = 1;
+  double humidity = 2;
+  double pressure = 3;
+  double wind_speed = 4;
+  double wind_direction = 5;
+  double precipitation = 6;
+  double solar_radiation = 7;
+  double uv_index = 8;
+  double air_quality = 9;
+  double noise_level = 10;
+}
+
+message Location {
+  double lat = 1;
+  double lon = 2;
+}
+
+message RecordMetadata {
+  Location location = 1;
+  string quality = 2;
+  bool calibrated = 3;
+}
+
+message DataRecord {
+  string timestamp = 1;
+  string sensor_id = 2;
+  SensorValues values = 3;
+  RecordMetadata metadata = 4;
+}
+
+message ProcessDataRequest {
+  string operation_id = 1;
+  string dataset_type = 2;
+  string compression = 3;
+  int32 record_count = 4;
+  repeated DataRecord records = 5;
+}
+
+message Statistics {
+  SensorValues min = 1;
+  SensorValues max = 2;
+  SensorValues average = 3;
+  SensorValues stddev = 4;
+}
+
+message ProcessingMetadata {
+  string algorithm = 1;
+  double confidence = 2;
+  repeated string warnings = 3;
+}
+
+message ProcessDataResponse {
+  string operation_id = 1;
+  string processed = 2;
+  int32 records_processed = 3;
+  int32 processing_time = 4;
+  Statistics statistics = 5;
+  bytes anomalies = 6;
+  bytes trends = 7;
+  bytes processed_records = 8;
+  ProcessingMetadata metadata = 9;
+}
+
+// UC11: Stream Analytics
+message BufferConfig {
+  int32 size = 1;
+  string strategy = 2;
+}
+
+message StreamAnalyticsRequest {
+  string stream_id = 1;
+  int32 window_size = 2;
+  repeated string aggregations = 3;
+  BufferConfig buffer = 4;
+  repeated string metrics = 5;
+}
+
+message TimeWindow {
+  string start = 1;
+  string end = 2;
+}
+
+message MetricAggregation {
+  int32 count = 1;
+  double sum = 2;
+  double average = 3;
+  double min = 4;
+  double max = 5;
+}
+
+message ErrorMetric {
+  int32 count = 1;
+  double percentage = 2;
+}
+
+message AnalyticsResults {
+  MetricAggregation request_rate = 1;
+  ErrorMetric error_rate = 2;
+  double latency_p50 = 3;
+  double latency_p99 = 4;
+}
+
+message StreamAnalyticsResponse {
+  string stream_id = 1;
+  string timestamp = 2;
+  TimeWindow window = 3;
+  AnalyticsResults results = 4;
+}

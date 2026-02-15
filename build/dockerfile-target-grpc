@@ -10,8 +10,8 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build the application (placeholder - to be implemented)
-# RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o target-grpc ./cmd/target-grpc
+# Build the application
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o target-grpc ./cmd/target-grpc
 
 # Runtime stage
 FROM alpine:latest
@@ -20,8 +20,8 @@ RUN apk --no-cache add ca-certificates
 
 WORKDIR /root/
 
-# Copy the binary from builder (placeholder)
-# COPY --from=builder /app/target-grpc .
+# Copy the binary from builder
+COPY --from=builder /app/target-grpc .
 
 # Expose ports
 EXPOSE 9000 9090
@@ -30,8 +30,5 @@ EXPOSE 9000 9090
 ENV CHAOS_TARGET_PORT=9000
 ENV CHAOS_TARGET_METRICS_PORT=9090
 
-# Run the application (placeholder)
-# CMD ["./target-grpc"]
-
-# Placeholder: Print message that this is not implemented yet
-CMD ["sh", "-c", "echo 'Target gRPC service not yet implemented'; sleep infinity"]
+# Run the application
+CMD ["./target-grpc"]

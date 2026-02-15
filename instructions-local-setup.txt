@@ -39,6 +39,13 @@ chaos_target_http_processing_time_seconds_bucket{use_case="uc1",le="1"} 3812
 chaos_target_http_request_duration_seconds_bucket{method="GET",status_code="200",use_case="uc1",le="0.1"} 3812
 chaos_target_http_requests_total{method="GET",status_code="200",use_case="uc1"} 3812
 
+also show grpc service metrics:
+chaos_target_grpc_processing_time_seconds_bucket
+chaos_target_grpc_request_duration_seconds_bucket
+chaos_target_grpc_request_duration_seconds_sum
+chaos_target_grpc_request_duration_seconds_count
+chaos_target_grpc_success_total
+
 
 all components can be on the same docker network.
 all components should be reachable from the desktop for troubleshooting purposes

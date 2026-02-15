@@ -1,4 +1,4 @@
-.PHONY: all master agent client target-http clean proto run-server run-client run-both run-master run-agent run-target-http run-target-http-tls run-target-http-http2 run-target-http-notls run-test-setup stop-all generate-certs monitoring-up monitoring-down monitoring-logs run-full-stack docker-build docker-up docker-down docker-logs docker-full-stack stop-full-stack docker-restart
+.PHONY: all master agent client target-http target-grpc clean proto run-server run-client run-both run-master run-agent run-target-http run-target-grpc run-target-grpc-tls run-target-http-tls run-target-http-http2 run-target-http-notls run-test-setup stop-all generate-certs monitoring-up monitoring-down monitoring-logs monitoring-restart run-full-stack docker-build docker-up docker-down docker-logs docker-full-stack stop-full-stack docker-restart
 
 # Build all components
 all: master agent client target-http
@@ -6,6 +6,7 @@ all: master agent client target-http
 # Generate protobuf files
 proto:
 	protoc --go_out=. --go-grpc_out=. --go_opt=paths=source_relative --go-grpc_opt=paths=source_relative ./internal/contracts/master.proto
+	protoc --go_out=. --go-grpc_out=. --go_opt=paths=source_relative --go-grpc_opt=paths=source_relative ./internal/contracts/target.proto
 
 # Build the master binary
 master: proto
@@ -22,6 +23,10 @@ client: proto
 # Build the target-http binary
 target-http: proto
 	go build -o bin/target-http.exe ./cmd/target-http
+
+# Build the target-grpc binary
+target-grpc: proto
+	go build -o bin/target-grpc.exe ./cmd/target-grpc
 
 # Run the master server
 run-server: master
@@ -84,6 +89,18 @@ run-target-http-http2: target-http
 run-target-http-notls: target-http
 	@echo Starting Target HTTP Service without TLS...
 	.\bin\target-http.exe
+
+# Run the target-grpc service (foreground)
+run-target-grpc: target-grpc
+	@echo Starting Target gRPC Service...
+	.\bin\target-grpc.exe
+
+# Run the target-grpc service with TLS (foreground)
+run-target-grpc-tls: target-grpc
+	@echo Starting Target gRPC Service with TLS...
+	@if not exist certs\target-http mkdir certs\target-http
+	@if not exist certs\target-http\tls.crt $(MAKE) generate-certs
+	@powershell -Command "$$env:CHAOS_TARGET_PORT=9000; $$env:CHAOS_TARGET_CERT_FILE='certs\target-http\tls.crt'; $$env:CHAOS_TARGET_KEY_FILE='certs\target-http\tls.key'; & '.\bin\target-grpc.exe'"
 
 # Generate TLS certificates for target-http service
 generate-certs:
@@ -172,7 +189,7 @@ monitoring-logs:
 	@docker-compose -f docker-compose-monitoring.yml logs -f
 
 # Start full stack: test environment + monitoring
-run-full-stack: master agent target-http
+run-full-stack: master agent target-http target-grpc
 	@echo === Starting Full Chaos Generator Stack ===
 	@if not exist certs\target-http mkdir certs\target-http
 	@if not exist certs\target-http\tls.crt $(MAKE) generate-certs
@@ -181,7 +198,7 @@ run-full-stack: master agent target-http
 	@docker-compose -f docker-compose-monitoring.yml up -d
 	@timeout /t 5 /nobreak >nul
 	@echo.
-	@echo [2/4] Starting target HTTP services...
+	@echo [2/4] Starting target services...
 	@echo   - Target HTTP (non-TLS) on port 8080
 	@powershell -Command "Start-Process -FilePath '.\bin\target-http.exe' -WindowStyle Normal"
 	@timeout /t 2 /nobreak >nul
@@ -190,6 +207,9 @@ run-full-stack: master agent target-http
 	@timeout /t 2 /nobreak >nul
 	@echo   - Target HTTP/2 (TLS) on port 8444
 	@powershell -NoProfile -Command "$$env:CHAOS_TARGET_PORT=8444; $$env:CHAOS_TARGET_METRICS_PORT=9094; $$env:CHAOS_TARGET_PROTOCOL='http2'; $$env:CHAOS_TARGET_CERT_FILE='certs\target-http\tls.crt'; $$env:CHAOS_TARGET_KEY_FILE='certs\target-http\tls.key'; Start-Process -FilePath '.\bin\target-http.exe'"
+	@timeout /t 2 /nobreak >nul
+	@echo   - Target gRPC (TLS) on port 9000
+	@powershell -NoProfile -Command "$$env:CHAOS_TARGET_PORT=9000; $$env:CHAOS_TARGET_METRICS_PORT=9095; $$env:CHAOS_TARGET_CERT_FILE='certs\target-http\tls.crt'; $$env:CHAOS_TARGET_KEY_FILE='certs\target-http\tls.key'; Start-Process -FilePath '.\bin\target-grpc.exe' -WindowStyle Normal"
 	@timeout /t 2 /nobreak >nul
 	@echo.
 	@echo [3/4] Starting Chaos Master...
@@ -212,6 +232,7 @@ run-full-stack: master agent target-http
 	@echo   Target HTTP (non-TLS):  http://localhost:8080 (metrics: 9090)
 	@echo   Target HTTP (TLS):      https://localhost:8443 (metrics: 9093)
 	@echo   Target HTTP/2 (TLS):    https://localhost:8444 (metrics: 9094)
+	@echo   Target gRPC (TLS):      localhost:9000 (metrics: 9095)
 	@echo   Master:                 localhost:9002
 	@echo   Agent 1:                Connected (metrics: 9096)
 	@echo   Agent 2:                Connected (metrics: 9097)

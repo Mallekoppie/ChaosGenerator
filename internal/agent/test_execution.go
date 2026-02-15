@@ -8,6 +8,11 @@ import (
 	"time"
 )
 
+// Executor interface for different protocol executors
+type Executor interface {
+	Execute(ctx context.Context) error
+}
+
 // TestExecution represents a running test execution
 type TestExecution struct {
 	ID               string
@@ -21,7 +26,8 @@ type TestExecution struct {
 	ctx              context.Context
 	cancel           context.CancelFunc
 	wg               sync.WaitGroup
-	executor         *HTTPExecutor
+	executor         Executor
+	grpcExecutor     *GRPCExecutor // Keep reference for cleanup
 }
 
 // TestExecutionManager manages active test executions
@@ -73,17 +79,40 @@ func (m *TestExecutionManager) StartTest(testExecutionID, useCaseID, targetAddre
 		cancel:           cancel,
 	}
 
-	// Create HTTP executor
-	execution.executor = NewHTTPExecutor(
-		targetAddress,
-		targetProtocol,
-		connectionPooled,
-		useCaseID,
-		useCase.Method,
-		useCase.Path,
-		testExecutionID,
-		sni,
-	)
+	// Create executor based on protocol
+	if targetProtocol == "grpc" {
+		// Create gRPC executor
+		grpcExecutor, err := NewGRPCExecutor(
+			targetAddress,
+			targetProtocol,
+			connectionPooled,
+			useCaseID,
+			testExecutionID,
+			sni,
+		)
+		if err != nil {
+			cancel()
+			return fmt.Errorf("failed to create gRPC executor: %w", err)
+		}
+		execution.executor = grpcExecutor
+		execution.grpcExecutor = grpcExecutor
+
+		log.Printf("Created gRPC executor for target %s", targetAddress)
+	} else {
+		// Create HTTP executor
+		execution.executor = NewHTTPExecutor(
+			targetAddress,
+			targetProtocol,
+			connectionPooled,
+			useCaseID,
+			useCase.Method,
+			useCase.Path,
+			testExecutionID,
+			sni,
+		)
+
+		log.Printf("Created HTTP executor for target %s", targetAddress)
+	}
 
 	// Store execution
 	m.executions[testExecutionID] = execution
@@ -93,8 +122,8 @@ func (m *TestExecutionManager) StartTest(testExecutionID, useCaseID, targetAddre
 	AgentActiveUsers.WithLabelValues(testExecutionID).Set(float64(simulatedUsers))
 
 	// Start simulated users
-	log.Printf("Starting test execution %s with %d users for use case %s (connection pooling: %v)",
-		testExecutionID, simulatedUsers, useCaseID, connectionPooled)
+	log.Printf("Starting test execution %s with %d users for use case %s (protocol: %s, connection pooling: %v)",
+		testExecutionID, simulatedUsers, useCaseID, targetProtocol, connectionPooled)
 
 	for i := 0; i < simulatedUsers; i++ {
 		execution.wg.Add(1)
@@ -132,6 +161,13 @@ func (m *TestExecutionManager) StopTest(testExecutionID string) error {
 		log.Printf("All users stopped for test execution %s", testExecutionID)
 	case <-time.After(10 * time.Second):
 		log.Printf("Timeout waiting for users to stop for test execution %s", testExecutionID)
+	}
+
+	// Clean up gRPC executor if exists
+	if execution.grpcExecutor != nil {
+		if err := execution.grpcExecutor.Close(); err != nil {
+			log.Printf("Error closing gRPC executor: %v", err)
+		}
 	}
 
 	// Remove execution
