@@ -111,6 +111,7 @@ message StartTestCommand {
     string targetProtocol = 4;
     bool connectionReuseEnabled = 5;
     int32 simulatedUsers = 6;
+    string sni = 7; // Server Name Indication for TLS requests
 }
 
 message StopTestCommand {
@@ -140,9 +141,9 @@ message Target {
     string id = 1;
     string name = 2;
     string address = 3;
-    string serviceType = 4; // "http/1.1", "http/2", "grpc"
-    string protocol = 5; // "http", "https", "grpc"
-    bool connectionReuseEnabled = 6;
+    string protocol = 4; // "http", "https", "grpc"
+    bool connectionReuseEnabled = 5;
+    string sni = 6; // Server Name Indication for TLS requests
 }
 
 message RegisterTargetRequest {

@@ -129,8 +129,11 @@ func (c *Client) listTargets() {
 	for i, target := range resp.Targets {
 		fmt.Printf("\n%d. %s (ID: %s)\n", i+1, target.Name, target.Id)
 		fmt.Printf("   Address: %s\n", target.Address)
-		fmt.Printf("   Type: %s, Protocol: %s\n", target.ServiceType, target.Protocol)
+		fmt.Printf("   Protocol: %s\n", target.Protocol)
 		fmt.Printf("   Connection Reuse: %v\n", target.ConnectionReuseEnabled)
+		if target.Sni != "" {
+			fmt.Printf("   SNI: %s\n", target.Sni)
+		}
 	}
 }
 
@@ -139,17 +142,41 @@ func (c *Client) registerTarget() {
 
 	name := c.readInput("Target Name: ")
 	address := c.readInput("Target Address (e.g., http://localhost:8080): ")
-	serviceType := c.readInput("Service Type (http/1.1, http/2, grpc): ")
-	protocol := c.readInput("Protocol (http, https, grpc): ")
+
+	// Protocol selection with numbered list
+	fmt.Println("\nSelect Protocol:")
+	fmt.Println("1. http")
+	fmt.Println("2. https")
+	fmt.Println("3. grpc")
+	protocolChoice := c.readInput("Enter number (1-3): ")
+
+	protocolMap := map[string]string{
+		"1": "http",
+		"2": "https",
+		"3": "grpc",
+	}
+
+	protocol, ok := protocolMap[protocolChoice]
+	if !ok {
+		fmt.Println("Invalid protocol choice. Using 'http' as default.")
+		protocol = "http"
+	}
+
 	connectionReuse := c.readBool("Enable Connection Reuse")
+
+	// SNI is only relevant for HTTPS/TLS
+	sni := ""
+	if protocol == "https" || protocol == "grpc" {
+		sni = c.readInput("SNI (Server Name Indication, leave empty to skip): ")
+	}
 
 	req := &contracts.RegisterTargetRequest{
 		Target: &contracts.Target{
 			Name:                   name,
 			Address:                address,
-			ServiceType:            serviceType,
 			Protocol:               protocol,
 			ConnectionReuseEnabled: connectionReuse,
+			Sni:                    sni,
 		},
 	}
 
@@ -175,8 +202,27 @@ func (c *Client) updateTarget() {
 
 	name := c.readInput("New Name (leave empty to skip): ")
 	address := c.readInput("New Address (leave empty to skip): ")
-	serviceType := c.readInput("New Service Type (leave empty to skip): ")
-	protocol := c.readInput("New Protocol (leave empty to skip): ")
+
+	// Protocol selection with numbered list
+	fmt.Println("\nUpdate Protocol (leave empty to skip):")
+	fmt.Println("1. http")
+	fmt.Println("2. https")
+	fmt.Println("3. grpc")
+	protocolChoice := c.readInput("Enter number (1-3) or press Enter to skip: ")
+
+	protocol := ""
+	if protocolChoice != "" {
+		protocolMap := map[string]string{
+			"1": "http",
+			"2": "https",
+			"3": "grpc",
+		}
+		if p, ok := protocolMap[protocolChoice]; ok {
+			protocol = p
+		}
+	}
+
+	sni := c.readInput("New SNI (leave empty to skip): ")
 
 	// Build update request
 	req := &contracts.UpdateTargetRequest{
@@ -191,11 +237,11 @@ func (c *Client) updateTarget() {
 	if address != "" {
 		req.Target.Address = address
 	}
-	if serviceType != "" {
-		req.Target.ServiceType = serviceType
-	}
 	if protocol != "" {
 		req.Target.Protocol = protocol
+	}
+	if sni != "" {
+		req.Target.Sni = sni
 	}
 
 	resp, err := c.grpcClient.UpdateTarget(c.ctx, req)
@@ -343,7 +389,7 @@ func (c *Client) startTestInteractive() {
 
 	fmt.Println("\nAvailable Targets:")
 	for i, target := range targetsResp.Targets {
-		fmt.Printf("%d. %s (%s) - %s\n", i+1, target.Name, target.ServiceType, target.Address)
+		fmt.Printf("%d. %s (%s) - %s\n", i+1, target.Name, target.Protocol, target.Address)
 	}
 
 	targetIdx := c.readInt("\nSelect target number: ") - 1

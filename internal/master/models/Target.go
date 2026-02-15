@@ -7,9 +7,9 @@ type Target struct {
 	ID                     string    `json:"id"`
 	Name                   string    `json:"name"`
 	Address                string    `json:"address"`
-	ServiceType            string    `json:"serviceType"` // "http/1.1", "http/2", "grpc"
-	Protocol               string    `json:"protocol"`    // "http", "https", "grpc"
+	Protocol               string    `json:"protocol"` // "http", "https", "grpc"
 	ConnectionReuseEnabled bool      `json:"connectionReuseEnabled"`
+	SNI                    string    `json:"sni"` // Server Name Indication for TLS requests
 	CreatedAt              time.Time `json:"createdAt"`
 	UpdatedAt              time.Time `json:"updatedAt"`
 }

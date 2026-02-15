@@ -41,7 +41,7 @@ func GetTestExecutionManager() *TestExecutionManager {
 }
 
 // StartTest starts a new test execution
-func (m *TestExecutionManager) StartTest(testExecutionID, useCaseID, targetAddress, targetProtocol string, connectionPooled bool, simulatedUsers int) error {
+func (m *TestExecutionManager) StartTest(testExecutionID, useCaseID, targetAddress, targetProtocol string, connectionPooled bool, simulatedUsers int, sni string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -82,6 +82,7 @@ func (m *TestExecutionManager) StartTest(testExecutionID, useCaseID, targetAddre
 		useCase.Method,
 		useCase.Path,
 		testExecutionID,
+		sni,
 	)
 
 	// Store execution

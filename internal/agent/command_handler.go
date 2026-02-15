@@ -49,6 +49,7 @@ func (h *CommandHandler) handleStartTest(commandId string, cmd *pb.StartTestComm
 		cmd.TargetProtocol,
 		cmd.ConnectionReuseEnabled,
 		int(cmd.SimulatedUsers),
+		cmd.Sni,
 	)
 
 	if err != nil {

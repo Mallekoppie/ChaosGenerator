@@ -345,6 +345,7 @@ func (s *ChaosMasterServer) StartTestExecution(ctx context.Context, req *contrac
 					TargetProtocol:         target.Protocol,
 					ConnectionReuseEnabled: target.ConnectionReuseEnabled,
 					SimulatedUsers:         req.SimulatedUsersPerAgent,
+					Sni:                    target.SNI,
 				},
 			},
 		}
@@ -495,9 +496,9 @@ func targetModelToProto(target models.Target) *contracts.Target {
 		Id:                     target.ID,
 		Name:                   target.Name,
 		Address:                target.Address,
-		ServiceType:            target.ServiceType,
 		Protocol:               target.Protocol,
 		ConnectionReuseEnabled: target.ConnectionReuseEnabled,
+		Sni:                    target.SNI,
 	}
 }
 
@@ -531,8 +532,8 @@ func targetProtoToModel(pbTarget *contracts.Target) models.Target {
 		ID:                     pbTarget.Id,
 		Name:                   pbTarget.Name,
 		Address:                pbTarget.Address,
-		ServiceType:            pbTarget.ServiceType,
 		Protocol:               pbTarget.Protocol,
 		ConnectionReuseEnabled: pbTarget.ConnectionReuseEnabled,
+		SNI:                    pbTarget.Sni,
 	}
 }

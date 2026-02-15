@@ -127,7 +127,7 @@ func RegisterTarget(target models.Target) (string, error) {
 	platform.Log.Info("Registering new target",
 		zap.String("name", target.Name),
 		zap.String("address", target.Address),
-		zap.String("serviceType", target.ServiceType))
+		zap.String("protocol", target.Protocol))
 
 	// Generate unique target ID if not provided
 	if target.ID == "" {

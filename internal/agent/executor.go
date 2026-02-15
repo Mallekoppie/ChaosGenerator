@@ -37,29 +37,42 @@ type HTTPExecutor struct {
 	method           string
 	path             string
 	testExecutionID  string
+	sni              string
 }
 
 // NewHTTPExecutor creates a new HTTP executor
-func NewHTTPExecutor(targetAddress, targetProtocol string, connectionPooled bool, useCaseID, method, path, testExecutionID string) *HTTPExecutor {
+func NewHTTPExecutor(targetAddress, targetProtocol string, connectionPooled bool, useCaseID, method, path, testExecutionID, sni string) *HTTPExecutor {
+	// Configure TLS with SNI if provided
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: true, // For testing purposes
+	}
+	if sni != "" {
+		tlsConfig.ServerName = sni
+	}
+
 	// Client with connection pooling
 	pooledTransport := &http.Transport{
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 100,
 		IdleConnTimeout:     90 * time.Second,
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true, // For testing purposes
-		},
+		TLSClientConfig:     tlsConfig,
 	}
+	pooledTransport.Protocols = new(http.Protocols)
+	pooledTransport.Protocols.SetHTTP1(true)
+	pooledTransport.Protocols.SetHTTP2(true)
 
 	// Client without connection pooling (recreate connection each time)
 	noPoolTransport := &http.Transport{
 		MaxIdleConns:        0,
 		MaxIdleConnsPerHost: 0,
 		DisableKeepAlives:   true,
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true,
-		},
+		TLSClientConfig:     tlsConfig,
 	}
+	noPoolTransport.Protocols = new(http.Protocols)
+	noPoolTransport.Protocols.SetHTTP1(true)
+	// Disable HTTP/2 for no-pool client to ensure new connection each time (HTTP/2 connections are long-lived)
+	// This is also how we can simulate the overhead of connection establishment for each request when connection pooling is disabled
+	noPoolTransport.Protocols.SetHTTP2(false)
 
 	executor := &HTTPExecutor{
 		client: &http.Client{
@@ -76,6 +89,7 @@ func NewHTTPExecutor(targetAddress, targetProtocol string, connectionPooled bool
 		method:           method,
 		path:             path,
 		testExecutionID:  testExecutionID,
+		sni:              sni,
 	}
 
 	return executor

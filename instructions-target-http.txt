@@ -70,6 +70,10 @@ the test client located in cmd/client must be updated with the required calls to
 
 The client must continue to have an interactive text based interface. It should list the available use cases for testing to allow the user to trigger a use case. It must call the chaos master server to get the use cases, print it out and then the user can configure the use cases to trigger.
 
+When the client registers a target only protocol is needed. Service type is not used and can be removed. Also make the supported protocols a list so that the user just enters the number associated with the protocol instead of typing it in.
+
+The target must also have an extra property called SNI. When the test requests are executed the request are sent to the address and if it is a tls test and SNI has a value then the SNI must be set on the request.
+
 The client will get the use cases by calling the server. the user will then select a use-case that will be triggered. the client then calls the server for the available targets. since each target registered will have a name, address, service type and connection pooling config we can select the target to use. Then we must enter the number of users that will be simulated per agent.
 
 All test executions are always at full speed. We will control the volume with the number of deployed agents and the number of users per agent generating traffic.
