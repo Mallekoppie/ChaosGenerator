@@ -1,0 +1,236 @@
+syntax = "proto3";
+
+package contract;
+
+option go_package = "mallekoppie/ChaosGenerator/internal/contracts";
+
+service ChaosMaster {
+    // Agent operations
+    rpc RegisterAgent(RegisterAgentRequest) returns (RegisterAgentResponse) {}
+    rpc ConnectAgent(stream AgentMessage) returns (stream AgentCommand) {}
+    rpc GetAllAgents(GetAllAgentsRequest) returns (GetAllAgentsResponse) {}
+    rpc UpdateAgent(UpdateAgentRequest) returns (UpdateAgentResponse) {}
+    rpc DeleteAgent(DeleteAgentRequest) returns (DeleteAgentResponse) {}
+    rpc ClearAllAgents(ClearAllAgentsRequest) returns (ClearAllAgentsResponse) {}
+    
+    // Target operations
+    rpc RegisterTarget(RegisterTargetRequest) returns (RegisterTargetResponse) {}
+    rpc UpdateTarget(UpdateTargetRequest) returns (UpdateTargetResponse) {}
+    rpc DeleteTarget(DeleteTargetRequest) returns (DeleteTargetResponse) {}
+    rpc GetAllTargets(GetAllTargetsRequest) returns (GetAllTargetsResponse) {}
+    
+    // Use case operations
+    rpc GetUseCases(GetUseCasesRequest) returns (GetUseCasesResponse) {}
+    
+    // Test execution operations
+    rpc StartTestExecution(StartTestExecutionRequest) returns (StartTestExecutionResponse) {}
+    rpc StopTestExecution(StopTestExecutionRequest) returns (StopTestExecutionResponse) {}
+    rpc GetRunningTests(GetRunningTestsRequest) returns (GetRunningTestsResponse) {}
+}
+
+// Agent messages
+message Agent {
+    string id = 1;
+    string host = 2;
+    int32 port = 3;
+    int32 metricsPort = 4;
+    bool enabled = 5;
+    string status = 6;
+}
+
+message GetAllAgentsRequest {}
+
+message GetAllAgentsResponse {
+    repeated Agent agents = 1;
+}
+
+message UpdateAgentRequest {
+    Agent agent = 1;
+}
+
+message UpdateAgentResponse {
+    bool success = 1;
+}
+
+message DeleteAgentRequest {
+    Agent agent = 1;
+}
+
+message DeleteAgentResponse {
+    bool success = 1;
+}
+
+message ClearAllAgentsRequest {}
+
+message ClearAllAgentsResponse {
+    bool success = 1;
+    string message = 2;
+    int32 deletedCount = 3;
+}
+
+message RegisterAgentRequest {
+    string hostname = 1;
+    int32 port = 2;
+    int32 metricsPort = 3;
+    string version = 4;
+}
+
+message RegisterAgentResponse {
+    string agentId = 1;
+    bool success = 2;
+    string message = 3;
+}
+
+// Agent streaming messages
+message AgentMessage {
+    string agentId = 1;
+    oneof payload {
+        AgentHeartbeat heartbeat = 2;
+        CommandResponse response = 3;
+    }
+}
+
+message AgentHeartbeat {
+    int64 timestamp = 1;
+}
+
+message AgentCommand {
+    string commandId = 1;
+    oneof command {
+        StartTestCommand startTest = 3;
+        StopTestCommand stopTest = 4;
+        GetVersionCommand getVersion = 7;
+        HealthCheckCommand healthCheck = 9;
+    }
+}
+
+message StartTestCommand {
+    string testExecutionId = 1;
+    string useCaseId = 2;
+    string targetAddress = 3;
+    string targetProtocol = 4;
+    bool connectionReuseEnabled = 5;
+    int32 simulatedUsers = 6;
+    string sni = 7; // Server Name Indication for TLS requests
+}
+
+message StopTestCommand {
+    string testExecutionId = 1;
+}
+
+message GetVersionCommand {}
+
+message HealthCheckCommand {}
+
+message CommandResponse {
+    string commandId = 1;
+    bool success = 2;
+    string error = 3;
+    oneof result {
+        VersionResult versionResult = 5;
+    }
+}
+
+message VersionResult {
+    string version = 1;
+    string hostname = 2;
+}
+
+// Target messages
+message Target {
+    string id = 1;
+    string name = 2;
+    string address = 3;
+    string protocol = 4; // "http", "https", "grpc"
+    bool connectionReuseEnabled = 5;
+    string sni = 6; // Server Name Indication for TLS requests
+}
+
+message RegisterTargetRequest {
+    Target target = 1;
+}
+
+message RegisterTargetResponse {
+    string targetId = 1;
+    bool success = 2;
+    string message = 3;
+}
+
+message UpdateTargetRequest {
+    Target target = 1;
+}
+
+message UpdateTargetResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message DeleteTargetRequest {
+    string id = 1;
+}
+
+message DeleteTargetResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message GetAllTargetsRequest {}
+
+message GetAllTargetsResponse {
+    repeated Target targets = 1;
+}
+
+// Use case messages
+message UseCase {
+    string id = 1;
+    string name = 2;
+    string path = 3;
+    string method = 4;
+    string description = 5;
+}
+
+message GetUseCasesRequest {}
+
+message GetUseCasesResponse {
+    repeated UseCase useCases = 1;
+}
+
+// Test execution messages
+message StartTestExecutionRequest {
+    string useCaseId = 1;
+    string targetId = 2;
+    int32 simulatedUsersPerAgent = 3;
+    string agentSelection = 4; // "all" or comma-separated IDs
+}
+
+message StartTestExecutionResponse {
+    string testExecutionId = 1;
+    bool success = 2;
+    string message = 3;
+}
+
+message StopTestExecutionRequest {
+    string testExecutionId = 1;
+}
+
+message StopTestExecutionResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message GetRunningTestsRequest {}
+
+message GetRunningTestsResponse {
+    repeated RunningTestExecution tests = 1;
+}
+
+message RunningTestExecution {
+    string testExecutionId = 1;
+    string useCaseId = 2;
+    string useCaseName = 3;
+    string targetId = 4;
+    string targetName = 5;
+    int32 simulatedUsersPerAgent = 6;
+    int32 numberOfAgents = 7;
+    int64 startTime = 8; // Unix timestamp
+}

@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chaos-agent-with-configmap
+  labels:
+    app: chaos-agent
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: chaos-agent
+  template:
+    metadata:
+      labels:
+        app: chaos-agent
+    spec:
+      containers:
+      - name: chaos-agent
+        image: your-registry/chaos-agent:latest
+        envFrom:
+        - configMapRef:
+            name: chaos-agent-config
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"

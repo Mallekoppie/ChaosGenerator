@@ -1,8 +1,0 @@
-{
-	"agents": [
-		{
-			"name": "one",
-			"url": "localhost:9001"
-		}
-	]
-}

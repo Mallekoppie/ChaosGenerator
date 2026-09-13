@@ -1,1 +1,0 @@
-{"name":"testBase64Body","tests":[{"name":"BasicGet","method":"GET","url":"http://localhost:9001/TestTestRunnerFirstBasic","body":"eyJOYW1lIjoiVGVzdFZhbHVlIn0=","responseCode":200}]}

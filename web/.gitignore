@@ -1,0 +1,15 @@
+# Flutter/Dart build output
+.dart_tool/
+.packages
+build/
+pubspec.lock
+
+# Generated protobuf and gRPC-Web stubs (see `make proto-dart`)
+lib/src/generated/*.pb.dart
+lib/src/generated/*.pbgrpc.dart
+lib/src/generated/*.pbenum.dart
+lib/src/generated/*.pbjson.dart
+
+# IDE
+.idea/
+*.iml

@@ -1,0 +1,47 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'chaos-generator'
+
+scrape_configs:
+  # Target HTTP Service - Non-TLS
+  - job_name: 'target-http-notls'
+    static_configs:
+      - targets: ['host.docker.internal:9090']
+        labels:
+          service: 'target-http'
+          protocol: 'http1'
+          tls: 'false'
+
+  # Target HTTP Service - TLS
+  - job_name: 'target-http-tls'
+    static_configs:
+      - targets: ['host.docker.internal:9093']
+        labels:
+          service: 'target-http'
+          protocol: 'http1'
+          tls: 'true'
+
+  # Target HTTP/2 Service - TLS
+  - job_name: 'target-http2-tls'
+    static_configs:
+      - targets: ['host.docker.internal:9094']
+        labels:
+          service: 'target-http'
+          protocol: 'http2'
+          tls: 'true'
+
+  # Target gRPC Service
+  - job_name: 'target-grpc'
+    static_configs:
+      - targets: ['host.docker.internal:9095']
+        labels:
+          service: 'target-grpc'
+          protocol: 'grpc'
+
+  - job_name: 'chaos-agents'
+    static_configs:
+      - targets: ['host.docker.internal:9096', 'host.docker.internal:9097']
+        labels:
+          service: 'chaos-agent'

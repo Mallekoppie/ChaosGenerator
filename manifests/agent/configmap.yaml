@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chaos-agent-config
+data:
+  CHAOS_MASTER_ADDRESS: "chaos-master-service:9002"
+  CHAOS_AGENT_PORT: "9001"
+  CHAOS_AGENT_METRICS_PORT: "9091"
+  CHAOS_AGENT_VERSION: "2.0.0"

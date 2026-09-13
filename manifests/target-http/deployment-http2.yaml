@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: target-http2
+  labels:
+    app: target-http2
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: target-http2
+  template:
+    metadata:
+      labels:
+        app: target-http2
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: target-http
+        image: your-registry/target-http:latest
+        ports:
+        - containerPort: 8443
+          name: https
+          protocol: TCP
+        - containerPort: 9090
+          name: metrics
+          protocol: TCP
+        env:
+        - name: CHAOS_TARGET_PROTOCOL
+          value: "http2"
+        - name: CHAOS_TARGET_PORT
+          value: "8443"
+        - name: CHAOS_TARGET_METRICS_PORT
+          value: "9090"
+        - name: CHAOS_TARGET_CERT_FILE
+          value: "/etc/tls/tls.crt"
+        - name: CHAOS_TARGET_KEY_FILE
+          value: "/etc/tls/tls.key"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8443
+            scheme: HTTPS
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8443
+            scheme: HTTPS
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        volumeMounts:
+        - name: tls-certs
+          mountPath: /etc/tls
+          readOnly: true
+      volumes:
+      - name: tls-certs
+        secret:
+          secretName: target-http-tls

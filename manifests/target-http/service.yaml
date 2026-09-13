@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: target-http
+  labels:
+    app: target-http
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  - port: 9090
+    targetPort: 9090
+    protocol: TCP
+    name: metrics
+  selector:
+    app: target-http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: target-http-tls
+  labels:
+    app: target-http-tls
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8443
+    targetPort: 8443
+    protocol: TCP
+    name: https
+  - port: 9090
+    targetPort: 9090
+    protocol: TCP
+    name: metrics
+  selector:
+    app: target-http-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: target-http2
+  labels:
+    app: target-http2
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8443
+    targetPort: 8443
+    protocol: TCP
+    name: https
+  - port: 9090
+    targetPort: 9090
+    protocol: TCP
+    name: metrics
+  selector:
+    app: target-http2
