@@ -1,0 +1,1 @@
+DO NOT output JSON blocks like {"name": "write_to_file"}. You MUST strictly use Anthropic-style XML tags to invoke tools.
