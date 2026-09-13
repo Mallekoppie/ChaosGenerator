@@ -79,8 +79,8 @@
       },
       "targets": [
         {
-          "expr": "rate(target_http_requests_total[1m])",
-          "legendFormat": "{{service}} - {{protocol}} - {{tls}} - {{endpoint}}",
+          "expr": "sum by (target_type, use_case, method, status_code) (rate(chaos_target_requests_total[1m]))",
+          "legendFormat": "{{target_type}} - {{use_case}} - {{method}} - {{status_code}}",
           "refId": "A"
         }
       ],
@@ -148,13 +148,13 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, rate(target_http_request_duration_seconds_bucket[5m]))",
-          "legendFormat": "{{service}} - {{protocol}} - {{tls}} - {{endpoint}} (p95)",
+          "expr": "histogram_quantile(0.95, sum by (le, target_type, use_case, method) (rate(chaos_target_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{target_type}} - {{use_case}} - {{method}} (p95)",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.99, rate(target_http_request_duration_seconds_bucket[5m]))",
-          "legendFormat": "{{service}} - {{protocol}} - {{tls}} - {{endpoint}} (p99)",
+          "expr": "histogram_quantile(0.99, sum by (le, target_type, use_case, method) (rate(chaos_target_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{target_type}} - {{use_case}} - {{method}} (p99)",
           "refId": "B"
         }
       ],
@@ -203,7 +203,7 @@
       "pluginVersion": "8.0.0",
       "targets": [
         {
-          "expr": "sum(rate(target_http_requests_total[5m])) by (service, protocol, tls)",
+          "expr": "sum by (service, protocol, tls) (rate(chaos_target_requests_total[5m]))",
           "legendFormat": "{{service}} - {{protocol}} - TLS:{{tls}}",
           "refId": "A"
         }
@@ -272,8 +272,8 @@
       },
       "targets": [
         {
-          "expr": "rate(target_http_requests_total{status_code=~\"5..\"}[5m])",
-          "legendFormat": "{{service}} - {{protocol}} - {{endpoint}} ({{status_code}})",
+          "expr": "sum by (service, protocol, status_code) (rate(chaos_target_requests_total{status_code=~\"5..\"}[5m]))",
+          "legendFormat": "{{service}} - {{protocol}} ({{status_code}})",
           "refId": "A"
         }
       ],

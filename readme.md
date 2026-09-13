@@ -6,11 +6,13 @@ The main purpose is to determine the maximum theoretical through of a service. T
 
 ## Project Structure
 
-- `cmd/master` - Main entry point for the ChaosMaster service
+- `cmd/master` - Main entry point for the ChaosMaster service (native gRPC on `9002`, web + gRPC-Web on `8080`)
 - `cmd/agent` - Main entry point for the ChaosAgent service
 - `internal/master/` - Master service implementation
 - `internal/agent/` - Agent service implementation
-- `internal/contracts/` - Protocol buffer definitions for communication (agent.proto, master.proto)
+- `internal/contracts/` - Protocol buffer definitions for communication (master.proto, target.proto, auth.proto)
+- `internal/master/web/` - gRPC-Web + embedded web app HTTP server
+- `web/` - Flutter web control panel (talks to the master over gRPC-Web)
 - `manifests/` - Kubernetes deployment manifests
   - `manifests/server/` - Master server Kubernetes manifests
   - `manifests/agent/` - Agent Kubernetes manifests
@@ -77,21 +79,35 @@ make run-agent
 
 This builds and starts a ChaosAgent that connects to the master at localhost:9002.
 
-#### Run complete test environment
+#### Run the full local stack in the background
 
 ```bash
-make run-test-setup
+make start
 ```
 
-This starts the master server and 2 agents in separate windows for testing.
-
-#### Stop all running processes
+Builds everything, generates certificates and starts the master, `AGENT_COUNT`
+(default 2) agents and the target services in the background. Each process logs
+to `.run/<name>.log`, and the command prints a per-service status table and the
+web UI URL.
 
 ```bash
-make stop-all
+make status    # what is running and on which ports
+make logs      # follow the background logs
+make stop      # stop everything
+make restart   # stop then start again
 ```
 
-Stops all chaos-master and chaos-agent processes.
+Default ports (override on the command line, for example
+`make start TARGET_HTTP_PORT=8085 MASTER_WEB_ADDR=0.0.0.0:9100`):
+
+| Service | Default |
+|---------|---------|
+| Master gRPC | 9002 |
+| Master web UI / gRPC-Web | 9001 |
+| Target HTTP | 8080 |
+| Target HTTPS | 8443 |
+| Target HTTP/2 | 8444 |
+| Target gRPC | 9000 |
 
 ### Run the test client
 
@@ -99,17 +115,94 @@ Stops all chaos-master and chaos-agent processes.
 make run-client
 ```
 
-This builds and starts the interactive test client that connects to the master server.
+This builds and starts the interactive test client. It needs a master that is
+already running (`make start`, or `make run-master` in another terminal).
 
-### Run both server and client together
+## Web Control Panel
+
+The master embeds a Flutter web control panel and exposes the same services over
+**gRPC-Web**, so the whole system is gRPC end to end.
+
+### Build
 
 ```bash
-make run-both
+# Generate the Dart protobuf/gRPC-Web stubs (requires the Dart SDK + protoc_plugin)
+make proto-dart
+
+# Build the Flutter web app and embed it into the master binary
+make buildweb
 ```
 
-This starts the server in a separate window and then launches the client in the foreground, allowing you to interact with the server immediately.
+`make buildweb` runs `flutter build web --base-href=/` and copies the result into
+`cmd/master/dist`, which is embedded with `//go:embed`. Override the base href
+with `make buildweb BASE_HREF=/some/path/` if you host the app elsewhere.
 
-**Note**: When using `make run-both`, the server runs in a separate window. To stop the server, close its window or use Task Manager.
+The web app and the gRPC-Web endpoints share a single port (default
+`0.0.0.0:9001`). Change it with the `CHAOS_MASTER_WEB_ADDRESS` environment
+variable, for example:
+
+```bash
+CHAOS_MASTER_WEB_ADDRESS=127.0.0.1:9100 ./bin/chaos-master
+```
+
+If the port is already in use the master exits immediately with
+`Unable to start the web server; set CHAOS_MASTER_WEB_ADDRESS to a free port`
+rather than running without a web UI.
+
+> Remember to rebuild (`make master`) after changing any of the defaults in
+> `cmd/master/main.go` — the Flutter app and the defaults are compiled into the
+> binary.
+
+### Run locally
+
+```bash
+# Start the master (native gRPC on 9002, web + gRPC-Web on 9001)
+make master
+./bin/chaos-master
+# open http://localhost:9001/
+```
+
+The first user is created from the **Register** screen using the registration
+secret (`CHAOS_REGISTER_SECRET`, default `chaos-dev-secret` for development).
+The JWT signing key is configured with `CHAOS_JWT_SIGNING_KEY`.
+
+For Flutter hot reload during development, run the master with gRPC-Web only and
+point the app at it:
+
+```bash
+make run-master-dev
+cd web && flutter run -d chrome --dart-define=CHAOS_MASTER_URL=http://localhost:9001
+```
+
+### Kubernetes
+
+```bash
+kubectl port-forward svc/chaos-master-service 8080:8080
+# open http://localhost:8080/
+```
+
+See [KUBERNETES.md](KUBERNETES.md) for details.
+
+## Monitoring
+
+Prometheus and Grafana come up with a single command:
+
+```bash
+make monitoring-up
+```
+
+- If a Docker daemon is reachable it runs `docker-compose-monitoring.yml`.
+- Otherwise it downloads Prometheus and Grafana into `.monitoring/` and runs them
+  as background processes (useful inside dev containers where Docker can't run).
+
+| Service | URL | Login |
+|---------|-----|-------|
+| Prometheus | http://localhost:9091 | - |
+| Grafana | http://localhost:3000 | admin/admin |
+
+Override the ports with `PROMETHEUS_PORT` / `GRAFANA_PORT` if they are taken.
+`make run-full-stack` starts the services and monitoring together; `make monitoring-down`
+stops monitoring only. See [monitoring/README.md](monitoring/README.md) for details.
 
 ## Configuration
 

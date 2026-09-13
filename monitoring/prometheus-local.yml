@@ -1,0 +1,50 @@
+# Prometheus configuration for running natively on the host (no Docker).
+# The Docker configuration lives in prometheus.yml and targets
+# host.docker.internal instead of localhost.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'chaos-generator'
+
+scrape_configs:
+  # Target HTTP Service - Non-TLS
+  - job_name: 'target-http-notls'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'target-http'
+          protocol: 'http1'
+          tls: 'false'
+
+  # Target HTTP Service - TLS
+  - job_name: 'target-http-tls'
+    static_configs:
+      - targets: ['localhost:9093']
+        labels:
+          service: 'target-http'
+          protocol: 'http1'
+          tls: 'true'
+
+  # Target HTTP/2 Service - TLS
+  - job_name: 'target-http2-tls'
+    static_configs:
+      - targets: ['localhost:9094']
+        labels:
+          service: 'target-http'
+          protocol: 'http2'
+          tls: 'true'
+
+  # Target gRPC Service
+  - job_name: 'target-grpc'
+    static_configs:
+      - targets: ['localhost:9095']
+        labels:
+          service: 'target-grpc'
+          protocol: 'grpc'
+
+  - job_name: 'chaos-agents'
+    static_configs:
+      - targets: ['localhost:9096', 'localhost:9097']
+        labels:
+          service: 'chaos-agent'

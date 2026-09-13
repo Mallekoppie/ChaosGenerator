@@ -4,14 +4,17 @@ This directory contains the configuration for local monitoring with Prometheus a
 
 ## Quick Start
 
-Start the full stack (services + monitoring):
-```powershell
+Start the local stack and monitoring together:
+
+```bash
 make run-full-stack
 ```
 
-Or start monitoring separately:
-```powershell
-make monitoring-up
+Or start the services and monitoring separately:
+
+```bash
+make start          # master, agents and targets in the background
+make monitoring-up  # Prometheus + Grafana
 ```
 
 ## Components
@@ -24,7 +27,7 @@ make monitoring-up
 ### Grafana
 - **URL**: http://localhost:3000
 - **Login**: admin/admin
-- **Pre-configured**: 
+- **Pre-configured**:
   - Prometheus datasource
   - Target HTTP Services dashboard
 
@@ -47,21 +50,24 @@ Pre-provisioned dashboard showing:
 
 ## Make Targets
 
-```powershell
+```bash
 # Start monitoring only
 make monitoring-up
 
 # Stop monitoring
 make monitoring-down
 
+# Restart monitoring
+make monitoring-restart
+
 # View logs
 make monitoring-logs
 
-# Start full stack (services + monitoring)
+# Start the local services plus monitoring
 make run-full-stack
 
-# Stop services (but not monitoring)
-make stop-all
+# Stop the local services (monitoring keeps running)
+make stop
 ```
 
 ## Configuration Files
@@ -88,6 +94,47 @@ scrape_configs:
 
 Place JSON dashboard files in `grafana/provisioning/dashboards/` and they will be automatically loaded.
 
-## Docker Requirements
+## How it runs
 
-Requires Docker Desktop for Windows to be running.
+`make monitoring-up` picks a mode automatically:
+
+- **Docker** when a Docker daemon is reachable: runs `docker-compose-monitoring.yml`.
+- **Native** otherwise (for example inside a dev container without Docker): downloads
+  Prometheus and Grafana into `.monitoring/` and runs them as background processes.
+
+Force a mode with `MONITORING_MODE=docker` or `MONITORING_MODE=local`.
+
+```bash
+make monitoring-install   # just download the binaries
+make monitoring-clean     # remove .monitoring (binaries + data)
+```
+
+## Ports
+
+| Service | Default | Override |
+|---------|---------|----------|
+| Prometheus | 9091 | `PROMETHEUS_PORT` |
+| Grafana | 3000 | `GRAFANA_PORT` |
+
+If a port is already taken the command reports `FAILED - see .run/<name>.log` and
+suggests free ports:
+
+```bash
+make monitoring-up PROMETHEUS_PORT=9191 GRAFANA_PORT=3001
+```
+
+## Metric names
+
+Target and agent metrics follow [METRICS-STANDARDIZATION.md](../METRICS-STANDARDIZATION.md):
+
+- `chaos_target_*` with labels `target_type`, `use_case`, `method`, `status_code`
+- `chaos_agent_*` with labels `target_protocol`, `use_case`, `method`, `status_code`, `connection_pooled`
+
+The provisioned dashboards use these names. Metric vectors only appear in
+Prometheus after a test has generated at least one request.
+
+## Requirements
+
+Docker with the Compose plugin (`docker compose`) or the standalone `docker-compose`
+for the container path. The native path only needs `curl`, `tar` and a free port;
+the Makefile picks whichever mode is available.

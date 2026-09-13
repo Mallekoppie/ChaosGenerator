@@ -21,6 +21,25 @@ spec:
         - containerPort: 9002
           name: grpc
           protocol: TCP
+        # Serves the web control panel and the gRPC-Web endpoints.
+        - containerPort: 8080
+          name: web
+          protocol: TCP
+        env:
+        - name: CHAOS_MASTER_WEB_ADDRESS
+          value: "0.0.0.0:8080"
+        - name: CHAOS_MASTER_DB_PATH
+          value: "/data/chaos_master.db"
+        - name: CHAOS_JWT_SIGNING_KEY
+          valueFrom:
+            secretKeyRef:
+              name: chaos-master-secrets
+              key: jwtSigningKey
+        - name: CHAOS_REGISTER_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: chaos-master-secrets
+              key: registerSecret
         resources:
           requests:
             memory: "256Mi"
@@ -29,13 +48,15 @@ spec:
             memory: "1Gi"
             cpu: "1000m"
         livenessProbe:
-          tcpSocket:
-            port: 9002
+          httpGet:
+            path: /healthz
+            port: web
           initialDelaySeconds: 10
           periodSeconds: 30
         readinessProbe:
-          tcpSocket:
-            port: 9002
+          httpGet:
+            path: /healthz
+            port: web
           initialDelaySeconds: 5
           periodSeconds: 10
         volumeMounts:

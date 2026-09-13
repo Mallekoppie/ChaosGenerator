@@ -1,47 +1,72 @@
-# Docker Full Stack - Quick Reference
+# Docker & Monitoring - Quick Reference
 
-## Single Command Setup
+## Container images
 
-```powershell
-# Start everything (builds images, starts all services + monitoring)
-make docker-up
-
-# Stop everything
-make stop-full-stack
+```bash
+make docker-build              # all images
+make docker-build-master       # builds the Flutter web app inside the image
+make docker-build-agent
+make docker-build-target-http
+make docker-build-target-grpc
 ```
+
+To tag images for a registry:
+
+```bash
+make docker-build REGISTRY=registry.example.com/ IMAGE_TAG=1.2.3
+```
+
+The master image embeds the web control panel. Override the hosting path with
+`make docker-build-master BASE_HREF=/chaos/` if needed.
+
+## Local stack (native processes)
+
+```bash
+make start            # master + agents + targets in the background
+make status           # what is running and on which ports
+make logs             # follow the logs
+make stop             # stop everything
+```
+
+## Monitoring
+
+```bash
+make monitoring-up        # Docker if available, otherwise native binaries
+make monitoring-down
+make monitoring-restart
+make monitoring-logs
+make monitoring-install   # download Prometheus/Grafana into .monitoring
+make monitoring-clean
+make run-full-stack       # local stack + monitoring
+```
+
+Prometheus defaults to port **9091** and Grafana to **3000**; override with
+`PROMETHEUS_PORT` / `GRAFANA_PORT` if they are taken.
 
 ## Access URLs
 
 | Service | URL | Login |
 |---------|-----|-------|
+| Web control panel | http://localhost:9001 | register with the registration secret |
 | Grafana | http://localhost:3000 | admin/admin |
 | Prometheus | http://localhost:9091 | - |
 | Target HTTP | http://localhost:8080 | - |
 | Target HTTPS | https://localhost:8443 | - |
 | Target HTTP/2 | https://localhost:8444 | - |
 
-## Run Load Tests
+## Port Reference
 
-```powershell
-# Run client (connects to Docker master)
-make run-client
-```
-
-## Common Commands
-
-```powershell
-# View all logs
-make docker-logs
-
-# Restart services
-make docker-restart
-
-# Stop containers
-make docker-down
-
-# Rebuild images
-make docker-build
-```
+| Service | Port | Purpose |
+|---------|------|---------|
+| Master | 9002 | gRPC (agents) |
+| Master | 9001 | Web UI + gRPC-Web |
+| Agent 1 / 2 | 9096 / 9097 | Metrics |
+| Target HTTP | 8080 / 9090 | Service / metrics |
+| Target HTTPS | 8443 / 9093 | Service / metrics |
+| Target HTTP/2 | 8444 / 9094 | Service / metrics |
+| Target gRPC | 9000 / 9095 | Service / metrics |
+| Prometheus | 9091 | UI |
+| Grafana | 3000 | UI |
 
 ## Grafana Dashboards
 
@@ -50,85 +75,28 @@ make docker-build
 3. **Client Perspective** - Load testing from client view
 4. **Service Perspective** - Load testing from service view
 
-## Port Reference
-
-| Service | Port | Purpose |
-|---------|------|---------|
-| Master | 9002 | gRPC |
-| Agent 1 | 9096 | Metrics |
-| Agent 2 | 9097 | Metrics |
-| Target HTTP | 8080 | Service |
-| Target HTTP | 9090 | Metrics |
-| Target HTTPS | 8443 | Service |
-| Target HTTPS | 9093 | Metrics |
-| Target HTTP/2 | 8444 | Service |
-| Target HTTP/2 | 9094 | Metrics |
-| Prometheus | 9091 | UI |
-| Grafana | 3000 | UI |
-
 ## Troubleshooting
 
-```powershell
-# Check running containers
-docker ps
-
-# View specific service logs
-docker-compose -f docker-compose-full-stack.yml logs chaos-master
-
-# Check Prometheus targets
-# Open: http://localhost:9091/targets
-
-# Regenerate certificates
-rmdir /s /q certs\target-http
-make generate-certs
+```bash
+docker ps          # running containers
+make status        # local processes and listening ports
+make logs          # follow the background stack logs
+make clean-certs   # remove generated TLS certificates
 ```
 
-## Load Testing Workflow
+## Kubernetes
 
-1. Start stack: `make docker-up`
-2. Open Grafana: http://localhost:3000
-3. Run tests: `make run-client`
-4. Monitor dashboards (Client + Service perspectives)
-5. Take screenshots for evidence
-6. Stop: `make stop-full-stack`
-
-## Architecture
-
-```
-Client (Your Terminal)
-    ↓
-Chaos Master (Docker) (:9002)
-    ↓
-Agents (Docker) (:9096, :9097)
-    ↓
-Targets (Docker) (:8080, :8443, :8444)
-    ↓
-Prometheus (Docker) (:9091)
-    ↓
-Grafana (Docker) (:3000)
+```bash
+kubectl apply -k manifests/server/
+kubectl apply -k manifests/agent/
+kubectl port-forward svc/chaos-master-service 8080:8080
+# open http://localhost:8080/
 ```
 
-## Metrics
-
-### Agent Metrics
-- Request rate, duration, errors
-- Connection time, TTFB
-- Active tests and users
-
-### Target Metrics  
-- Request rate, duration, errors
-- Processing time
-- Success/failure counts
-
-## Files
-
-- `docker-compose-full-stack.yml` - Main compose file
-- `monitoring/prometheus-docker.yml` - Prometheus config
-- `monitoring/grafana-docker/provisioning/` - Grafana config
-- `DOCKER-SETUP.md` - Full documentation
+See [KUBERNETES.md](KUBERNETES.md) for the full guide.
 
 ## See Also
 
-- [DOCKER-SETUP.md](DOCKER-SETUP.md) - Detailed documentation
+- [DOCKER-SETUP.md](DOCKER-SETUP.md) - Detailed container and monitoring documentation
 - [CONFIGURATION.md](CONFIGURATION.md) - Configuration options
 - [readme.md](readme.md) - Project overview

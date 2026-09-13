@@ -46,3 +46,21 @@ chaos_master.db
 chaos_master.db.lock
 certs/*
 bin/*
+
+# Background dev stack (make start / stop)
+.run/
+
+# Local monitoring binaries and data (make monitoring-install / monitoring-up)
+.monitoring/
+
+cmd/master/dist/*
+!cmd/master/dist/.gitkeep
+
+# Flutter web app
+web/build/
+web/.dart_tool/
+web/pubspec.lock
+web/lib/src/generated/*.pb.dart
+web/lib/src/generated/*.pbgrpc.dart
+web/lib/src/generated/*.pbenum.dart
+web/lib/src/generated/*.pbjson.dart

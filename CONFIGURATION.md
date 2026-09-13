@@ -2,9 +2,9 @@
 
 ## Local Development (Default)
 
-Run agent with defaults:
+Run the agent with defaults:
 ```bash
-.\bin\chaos-agent.exe
+./bin/chaos-agent
 ```
 
 Output will show:
@@ -18,25 +18,32 @@ Configuration loaded:
 
 ## Custom Configuration for Testing
 
-### Windows PowerShell
-```powershell
-$env:CHAOS_MASTER_ADDRESS = "localhost:9003"
-$env:CHAOS_AGENT_VERSION = "2.1.0"
-.\bin\chaos-agent.exe
-```
-
-### Windows CMD
-```cmd
-set CHAOS_MASTER_ADDRESS=localhost:9003
-set CHAOS_AGENT_VERSION=2.1.0
-.\bin\chaos-agent.exe
-```
-
-### Linux/Mac
+### Linux
 ```bash
 export CHAOS_MASTER_ADDRESS="localhost:9003"
 export CHAOS_AGENT_VERSION="2.1.0"
 ./bin/chaos-agent
+```
+
+Or override for a single command without exporting:
+```bash
+CHAOS_MASTER_ADDRESS=localhost:9003 CHAOS_AGENT_VERSION=2.1.0 ./bin/chaos-agent
+```
+
+## Master Configuration
+
+| Environment Variable | Default | Description |
+|----------------------|---------|-------------|
+| `CHAOS_MASTER_GRPC_ADDRESS` | `0.0.0.0:9002` | Native gRPC listener used by agents |
+| `CHAOS_MASTER_WEB_ADDRESS` | `0.0.0.0:9001` | Web control panel + gRPC-Web listener |
+| `CHAOS_MASTER_DB_PATH` | `chaos_master.db` | BoltDB file (`/data/...` in containers) |
+| `CHAOS_JWT_SIGNING_KEY` | development value | Signs the local JWTs issued to the web UI |
+| `CHAOS_REGISTER_SECRET` | `chaos-dev-secret` | Secret required to register the first user |
+| `DEBUG` | unset | `true` serves gRPC-Web only (no embedded UI) |
+
+Example: run the master with the web control panel on a different port:
+```bash
+CHAOS_MASTER_WEB_ADDRESS=0.0.0.0:9100 ./bin/chaos-master
 ```
 
 ## Kubernetes Deployment
@@ -144,21 +151,18 @@ services:
 
 ## Testing Different Configurations
 
-### Test with custom master address
-```powershell
-# Terminal 1 - Start master on custom port
-# (requires master code changes to support custom port)
-.\bin\chaos-master.exe
+### Test with a custom master address
+```bash
+# Terminal 1 - start the master
+./bin/chaos-master
 
-# Terminal 2 - Start agent connecting to master
-$env:CHAOS_MASTER_ADDRESS = "192.168.1.100:9002"
-.\bin\chaos-agent.exe
+# Terminal 2 - start an agent pointing at a specific master
+CHAOS_MASTER_ADDRESS=192.168.1.100:9002 ./bin/chaos-agent
 ```
 
 ### Test with version tracking
-```powershell
-$env:CHAOS_AGENT_VERSION = "dev-$(git rev-parse --short HEAD)"
-.\bin\chaos-agent.exe
+```bash
+CHAOS_AGENT_VERSION="dev-$(git rev-parse --short HEAD)" ./bin/chaos-agent
 ```
 
 ## Verification

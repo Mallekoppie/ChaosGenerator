@@ -53,7 +53,33 @@ Agent connected: agentId=<uuid>
 Successfully registered with master. Agent ID: <uuid>
 ```
 
-## Step 5: Scale Agents
+## Step 5: Access the Web Control Panel
+
+The master also serves a Flutter web control panel (over gRPC-Web) on port 8080.
+Forward it to your machine:
+
+```bash
+# Keep this running in its own terminal
+kubectl port-forward svc/chaos-master-service 8080:8080
+```
+
+Then open <http://localhost:8080/>.
+
+The first time you open the panel there are no users, so use **Register** and
+supply the registration secret:
+
+```bash
+kubectl get secret chaos-master-secrets -o jsonpath='{.data.registerSecret}' | base64 -d
+```
+
+Change the `jwtSigningKey` and `registerSecret` values in
+`manifests/server/secret.yaml` before deploying to a real cluster.
+
+The panel talks to the master over **gRPC-Web** using the same protobuf
+contract (`internal/contracts`) as the native gRPC API on port 9002, so every
+call is authenticated with the JWT returned by the `Auth` service.
+
+## Step 6: Scale Agents
 
 ```bash
 # Scale to 10 agents

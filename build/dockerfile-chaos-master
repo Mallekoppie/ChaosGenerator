@@ -1,5 +1,28 @@
-# Build stage
-FROM golang:1.21-alpine AS builder
+# --- Web build stage (Flutter + Dart gRPC-Web stubs) -------------------------
+FROM ghcr.io/cirruslabs/flutter:stable AS webbuilder
+
+ENV PATH="$PATH:/root/.pub-cache/bin"
+
+WORKDIR /web
+
+# The base href used when building the web app. The default works for
+# `kubectl port-forward` (http://localhost:8080/).
+ARG FLUTTER_BASE_HREF=/
+
+COPY web/ ./
+COPY internal/contracts/ /contracts/
+
+RUN dart pub global activate protoc_plugin 25.1.0 \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p lib/src/generated \
+    && protoc -I /contracts --dart_out=grpc:lib/src/generated /contracts/master.proto /contracts/auth.proto \
+    && flutter pub get \
+    && flutter build web --release --base-href=${FLUTTER_BASE_HREF}
+
+# --- Go build stage ----------------------------------------------------------
+FROM golang:1.26-alpine AS builder
 
 WORKDIR /app
 
@@ -10,10 +33,13 @@ RUN go mod download
 # Copy source code
 COPY . .
 
+# Embed the compiled Flutter web app.
+COPY --from=webbuilder /web/build/web/ ./cmd/master/dist/
+
 # Build the application
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o chaos-master ./cmd/master
 
-# Runtime stage
+# --- Runtime stage -----------------------------------------------------------
 FROM alpine:latest
 
 RUN apk --no-cache add ca-certificates
@@ -26,12 +52,12 @@ COPY --from=builder /app/chaos-master .
 # Create directory for database
 RUN mkdir -p /data
 
-# Expose gRPC port
-EXPOSE 9002
+# gRPC (agents) and web (gRPC-Web + control panel)
+EXPOSE 9002 8080
 
 # Environment variables with defaults
-ENV CHAOS_MASTER_PORT=9002
-ENV CHAOS_MASTER_DB_PATH=/data/chaos-master.db
+ENV CHAOS_MASTER_WEB_ADDRESS=0.0.0.0:8080
+ENV CHAOS_MASTER_DB_PATH=/data/chaos_master.db
 
 # Volume for persistent data
 VOLUME ["/data"]
