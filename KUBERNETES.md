@@ -8,25 +8,26 @@
 ## Local kind cluster (fastest way to test)
 
 If you only want to try the manifests locally, the `manifests/kind/` set deploys
-the master, the agents and a plain HTTP target into a throwaway
-[kind](https://kind.sigs.k8s.io/) cluster with images that are loaded straight
-into the node - no registry needed:
+the master, the agents, the target variants (HTTP/1.1, TLS, HTTP/2, gRPC) and the
+monitoring stack into a throwaway [kind](https://kind.sigs.k8s.io/) cluster with
+images that are loaded straight into the node - no registry needed:
 
 ```bash
-make kind-up             # create cluster + build/load images + deploy
-make kind-status         # deployments, pods, services and the PVC
-make kind-logs           # master, agent and target logs
-make kind-verify         # agents that registered with the master
-make kind-port-forward   # web control panel on http://localhost:8080/
-make kind-down           # delete the Chaos resources (keep the cluster)
-make kind-clean          # delete the cluster and manifests/generated
+make kind-up      # create cluster + build/load images + deploy everything
+make proxy        # web UI on 9001, Prometheus on 9091, Grafana on 3000
+make kind-status  # deployments, pods and services
+make kind-logs    # master, agent, target and Prometheus logs
+make kind-verify  # agents that registered with the master
+make kind-down    # delete the Chaos resources (keep the cluster)
+make kind-clean   # delete the cluster and manifests/generated
 ```
 
-kind needs podman (or docker), so it cannot run inside the distrobox container
-this repo is usually edited in - use `make kind-host` (or run `make kind-up` in a
-host terminal). `make manifests` renders `manifests/kind/` into
-`manifests/generated/` with the images `make docker-build` produces. Configure
-tests against `http://target-http.chaos-testing.svc.cluster.local:8080`.
+kind needs podman (or docker), so it cannot run inside the dev container this
+repository is usually edited in - run these targets in a host terminal.
+`make manifests` renders `manifests/kind/` into `manifests/generated/` with the
+images `make docker-build` produces. Configure tests against
+`http://target-http.chaos-testing.svc.cluster.local:8080`, or against the TLS,
+HTTP/2 and gRPC service names.
 
 See [manifests/kind/README.md](manifests/kind/README.md) for details.
 
@@ -80,15 +81,16 @@ Successfully registered with master. Agent ID: <uuid>
 
 ## Step 5: Access the Web Control Panel
 
-The master also serves a Flutter web control panel (over gRPC-Web) on port 8080.
-Forward it to your machine:
+The master serves a Flutter web control panel (over gRPC-Web) on port 8080
+in-cluster. Forward it to your machine:
 
 ```bash
 # Keep this running in its own terminal
-kubectl port-forward svc/chaos-master-service 8080:8080
+kubectl port-forward svc/chaos-master-service 9001:8080
 ```
 
-Then open <http://localhost:8080/>.
+Then open <http://localhost:9001/>. When you are running the kind cluster,
+`make proxy` forwards the web UI and the monitoring stack for you.
 
 The first time you open the panel there are no users, so use **Register** and
 supply the registration secret:

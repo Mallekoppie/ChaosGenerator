@@ -1,19 +1,24 @@
 # Local kind Manifests
 
 Self-contained manifests for testing the Chaos Generator in a local
-[kind](https://kind.sigs.k8s.io/) cluster. They deploy the master, the agents and
-one plain HTTP/1.1 target into a single namespace and deliberately avoid
-everything a vanilla kind cluster does not provide:
+[kind](https://kind.sigs.k8s.io/) cluster. This is the supported way to run the
+whole system: the master, the agents, the target variants and the monitoring
+stack all live in one namespace, and nothing runs on the host except `kubectl`.
 
-- no `ServiceMonitor` (the Prometheus Operator CRDs are not installed),
-- no TLS or HTTP/2 target deployments (no certificates to manage),
-- local image names (`chaos-master:latest`, `chaos-agent:latest`,
-  `target-http:latest`) instead of a `your-registry/...` placeholder,
+They deliberately avoid everything a vanilla kind cluster does not provide:
+
+- no `ServiceMonitor` (the Prometheus Operator CRDs are not installed), so
+  Prometheus is deployed with a ConfigMap-based scrape config instead,
+- local image names (`localhost/chaos-master:latest`, ...) instead of a
+  `your-registry/...` placeholder. Podman stores unqualified names under
+  `localhost/`, and the Makefile sets `REGISTRY=localhost/` to match, so the pods
+  use the images loaded by `kind load` instead of pulling from Docker Hub,
 - `imagePullPolicy: IfNotPresent` on every container, so the images loaded with
   `kind load` are used instead of being pulled from Docker Hub (a `:latest` tag
   would otherwise default to `Always`),
-- distroless images that run as uid 65532 with no shell, so the agent's probes
-  call `/health` over HTTP instead of running `pgrep` through a shell.
+- distroless images that run as uid 65532 with no shell, so probes use
+  `httpGet` / `tcpSocket` instead of running `pgrep` through a shell,
+- `emptyDir` rather than PVCs for the Prometheus and Grafana data.
 
 The registry/production oriented manifests live in `../server`, `../agent` and
 `../target-http`.
@@ -24,8 +29,10 @@ The registry/production oriented manifests live in `../server`, `../agent` and
 |------|-----------|
 | `namespace.yaml` | `chaos-testing` |
 | `server/` | master Deployment (9002 gRPC, 8080 web), Service, PVC, Secret |
-| `agent/` | agent Deployment (2 replicas, connects to `chaos-master-service:9002`) |
-| `target/` | target-http Deployment + Service (8080 HTTP, 9090 metrics) |
+| `agent/` | agent Deployment (2 replicas, connects to `chaos-master-service:9002`) plus the headless metrics Service Prometheus discovers |
+| `target/` | HTTP/1.1, TLS, HTTP/2 and gRPC targets, each with a Service and a metrics port |
+| `monitoring/` | Prometheus and Grafana Deployments, Services and ConfigMaps |
+| `kustomization.template.yaml` | Rendered into `generated/kustomization.yaml` |
 
 ## Usage
 
@@ -34,22 +41,19 @@ The registry/production oriented manifests live in `../server`, `../agent` and
 `make kind-up` deploys them:
 
 ```bash
-make kind-up             # create cluster + build/load images + deploy
-make kind-status         # deployments, pods, services and the PVC
-make kind-verify         # agents that registered with the master
-make kind-logs           # master, agent and target logs
-make kind-port-forward   # web control panel on http://localhost:8080/
+make kind-up      # create cluster + build/load images + deploy everything
+make proxy        # web UI on 9001, Prometheus on 9091, Grafana on 3000
+make kind-status  # deployments, pods and services
+make kind-verify  # agents that registered with the master
+make kind-logs    # master, agent, target and Prometheus logs
+make kind-down    # remove the Chaos resources (keep the cluster)
 ```
 
-kind drives podman (or docker), which cannot run inside the distrobox container
-this repository is usually edited in, so the `kind-*` targets must run on the
-host. From inside distrobox:
-
-```bash
-make kind-host
-# or
-distrobox-host-exec bash -lc 'cd <repo> && make kind-up'
-```
+kind drives podman (or docker), which cannot run inside the dev container this
+repository is usually edited in, so the `kind-*` targets and `make proxy` must
+run on the host. The Makefile detects that and prints the host command to run
+instead of failing obscurely. Everything else — `make all`, `make test`,
+`make manifests`, `make docker-build` — works in the dev container.
 
 ### Deploying by hand
 
@@ -72,9 +76,12 @@ make kind-up KIND_CLUSTER=chaos2
 
 | What | How |
 |------|-----|
-| Web control panel | `make kind-port-forward`, then open <http://localhost:8080/> |
+| Web control panel | `make proxy`, then open <http://localhost:9001/> (override with `WEB_UI_PORT`) |
+| Prometheus / Grafana | `make proxy` → <http://localhost:9091/> and <http://localhost:3000/> |
 | Target under test (cluster DNS) | `http://target-http.chaos-testing.svc.cluster.local:8080` |
-| Target metrics (from the host) | `kubectl -n chaos-testing port-forward svc/target-http 9090:9090` |
+| TLS target | `https://target-http-tls.chaos-testing.svc.cluster.local` (self-signed certificate) |
+| HTTP/2 target | `https://target-http2.chaos-testing.svc.cluster.local` |
+| gRPC target | `target-grpc.chaos-testing.svc.cluster.local:9000` |
 | Registration secret | see below (`chaos-dev-secret` by default) |
 
 ```bash
@@ -82,8 +89,10 @@ kubectl -n chaos-testing get secret chaos-master-secrets \
   -o jsonpath='{.data.registerSecret}' | base64 -d
 ```
 
-Use the in-cluster target URL when configuring a test in the panel - the agents
-resolve `target-http.chaos-testing.svc.cluster.local` through cluster DNS.
+Use the in-cluster URLs when configuring a test in the panel - the agents resolve
+the service names through cluster DNS. The TLS and HTTP/2 targets serve the
+self-signed certificate that `make generate-certs` creates and `make kind-secrets`
+applies as the `target-tls` Secret.
 
 ## Teardown
 
@@ -97,7 +106,7 @@ make kind-clean     # delete the cluster and manifests/generated
 
 | Symptom | Cause / fix |
 |---------|-------------|
-| Pods stuck in `ImagePullBackOff` | The images were not loaded (`make kind-images`) or `imagePullPolicy` is no longer `IfNotPresent`. |
+| Pods stuck in `ImagePullBackOff` | The images were not loaded (`make kind-images`), `imagePullPolicy` is no longer `IfNotPresent`, or the pod's image name does not match the loaded image. Podman stores unqualified names as `localhost/<name>`, so `REGISTRY` must stay `localhost/` on podman hosts - the Makefile derives it from `docker --version`, which also works through the podman `docker` shim. |
 | `kind create cluster` fails | kind needs a container engine: start podman on the host (`systemctl --user start podman.socket`). The Makefile sets `KIND_EXPERIMENTAL_PROVIDER=podman` for you. |
 | `kubectl` cannot reach the cluster | `kind create cluster` writes `~/.kube/config`. Check `KUBECONFIG`, or create the cluster with `kind create cluster --kubeconfig ~/.kube/kind-config` and export that path. |
 | The master PVC stays `Pending` | kind's default `standard` StorageClass (local-path provisioner) is missing. Drop `server/pvc.yaml`, set a `storageClassName` that exists, or mount an `emptyDir`. |

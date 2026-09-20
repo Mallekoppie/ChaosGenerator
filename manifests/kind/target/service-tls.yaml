@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: target-http-tls
+  labels:
+    app: target-http-tls
+    project: chaos-generator
+spec:
+  type: ClusterIP
+  ports:
+  - port: 443
+    targetPort: 8080
+    protocol: TCP
+    name: https
+  - port: 9090
+    targetPort: 9090
+    protocol: TCP
+    name: metrics
+  selector:
+    app: target-http-tls

@@ -2,6 +2,12 @@
 
 This directory contains Dockerfiles for building all components of the ChaosGenerator system.
 
+> Per-image reference only. You normally do not run `docker build` by hand:
+> `make docker-build` builds all four images, and `make kind-up` builds, loads and
+> deploys them into a local kind cluster. The `docker run` examples below are for
+> inspecting a single image, not for running the stack - the supported runtime is
+> the kind cluster described in [../DOCKER-SETUP.md](../DOCKER-SETUP.md).
+
 ## Available Dockerfiles
 
 ### 1. dockerfile-target-http
@@ -56,7 +62,8 @@ docker run -p 9091:9091 \
 ```
 
 ### 4. dockerfile-target-grpc
-Placeholder for the gRPC target service (to be implemented).
+Builds the gRPC target service (distroless, serving gRPC on 9000 with metrics on
+9090). Deployed by `manifests/kind/target/deployment-grpc.yaml`.
 
 ## Building All Images
 

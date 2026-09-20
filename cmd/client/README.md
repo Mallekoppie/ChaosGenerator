@@ -11,22 +11,22 @@ This client provides a command-line interface to interact with all ChaosMaster s
 
 ## Prerequisites
 
-1. The ChaosMaster server must be running (cmd/master)
-2. The server should be accessible at `127.0.0.1:9002` (default configuration)
+1. The master must be running in the kind cluster (`make kind-up`)
+2. Its gRPC port must be reachable on `127.0.0.1:9002`, which `make proxy-grpc`
+   forwards
 
 ## Running the Client
 
-To start the test client:
-
 ```bash
-go run cmd/client/main.go
+make proxy-grpc     # localhost:9002 -> master:9002 (Ctrl-C to stop)
+make client         # builds bin/chaos-client
+./bin/chaos-client
 ```
 
-Or build and run:
+The client reads `CHAOS_MASTER_ADDRESS` and falls back to `127.0.0.1:9002`:
 
 ```bash
-go build -o bin/chaos-client cmd/client/main.go
-./bin/chaos-client
+CHAOS_MASTER_ADDRESS=localhost:9002 ./bin/chaos-client
 ```
 
 ## Features

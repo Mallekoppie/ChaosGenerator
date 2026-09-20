@@ -9,6 +9,13 @@ resources:
   - service.yaml
   - deployment.yaml
 
+# Repeated in every sub-kustomization so each rendered file (kind-server.yaml,
+# kind-agent.yaml, ...) is correct on its own, not just inside kind-all.yaml.
+images:
+  - name: chaos-master
+    newName: __REGISTRY__chaos-master
+    newTag: __IMAGE_TAG__
+
 # The master uses BoltDB, so a single replica is the only supported setup.
 replicas:
   - name: chaos-master

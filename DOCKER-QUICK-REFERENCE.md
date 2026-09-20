@@ -1,9 +1,9 @@
-# Docker & Monitoring - Quick Reference
+# Docker & Kind - Quick Reference
 
 ## Container images
 
 ```bash
-make docker-build              # all images
+make docker-build              # all four images
 make docker-build-master       # builds the Flutter web app inside the image
 make docker-build-agent
 make docker-build-target-http
@@ -16,6 +16,12 @@ To tag images for a registry:
 make docker-build REGISTRY=registry.example.com/ IMAGE_TAG=1.2.3
 ```
 
+`REGISTRY` defaults to `localhost/` when the engine is podman (including the
+`docker` shim on Bazzite). Podman stores unqualified image names under
+`localhost/`, and the kind manifests must use the same name that `kind load` puts
+into the node, otherwise every pod fails with `ImagePullBackOff`. With real Docker
+it defaults to empty.
+
 The master image embeds the web control panel. Override the hosting path with
 `make docker-build-master BASE_HREF=/chaos/` if needed.
 
@@ -26,29 +32,40 @@ libc, running as uid 65532. Use `httpGet`/`tcpSocket` probes (the master serves
 when you need a shell for troubleshooting - see
 [DOCKER-SETUP.md](DOCKER-SETUP.md#distroless-runtime-images).
 
-## Local stack (native processes)
+## Kind cluster
+
+Everything runs in a kind cluster. There are no local run targets any more.
 
 ```bash
-make start            # master + agents + targets in the background
-make status           # what is running and on which ports
-make logs             # follow the logs
-make stop             # stop everything
+make manifests      # render manifests/kind -> manifests/generated (works in the container)
+make kind-up        # create cluster + build/load images + deploy everything
+make proxy          # web UI 9001, Prometheus 9091, Grafana 3000
+make kind-status    # deployments, pods and services
+make kind-logs      # master, agent, target and Prometheus logs
+make kind-verify    # agents that registered with the master
+make kind-restart   # roll the deployments after rebuilding images
+make kind-down      # remove the Chaos resources (keep the cluster)
+make kind-delete    # delete the kind cluster
+make kind-clean     # delete the cluster and manifests/generated
 ```
+
+`make kind-up` and the proxy targets must run on the **host**: kind spawns
+privileged containers, which does not work inside the dev container. `make all`,
+`make test`, `make manifests` and `make docker-build` all work in the container.
 
 ## Monitoring
 
-```bash
-make monitoring-up        # Docker if available, otherwise native binaries
-make monitoring-down
-make monitoring-restart
-make monitoring-logs
-make monitoring-install   # download Prometheus/Grafana into .monitoring
-make monitoring-clean
-make run-full-stack       # local stack + monitoring
-```
+Prometheus and Grafana run in the cluster and come up with `make kind-up`.
 
-Prometheus defaults to port **9091** and Grafana to **3000**; override with
-`PROMETHEUS_PORT` / `GRAFANA_PORT` if they are taken.
+| Service | Local URL | Login |
+|---------|-----------|-------|
+| Prometheus | http://localhost:9091 | - |
+| Grafana | http://localhost:3000 | admin/admin |
+
+Override with `PROMETHEUS_PORT` / `GRAFANA_PORT`, or use `make proxy-monitoring` to
+forward only these two. Prometheus scrapes the target variants and every agent pod
+with the same job names and labels as before, so the provisioned dashboards keep
+working.
 
 ## Access URLs
 
@@ -57,70 +74,55 @@ Prometheus defaults to port **9091** and Grafana to **3000**; override with
 | Web control panel | http://localhost:9001 | register with the registration secret |
 | Grafana | http://localhost:3000 | admin/admin |
 | Prometheus | http://localhost:9091 | - |
-| Target HTTP | http://localhost:8080 | - |
-| Target HTTPS | https://localhost:8443 | - |
-| Target HTTP/2 | https://localhost:8444 | - |
 
-## Port Reference
+`WEB_UI_PORT` overrides the web UI port, because 8080 is frequently already taken
+on a workstation. Inside the cluster the master still listens on 8080.
 
-| Service | Port | Purpose |
-|---------|------|---------|
-| Master | 9002 | gRPC (agents) |
-| Master | 9001 | Web UI + gRPC-Web |
-| Agent 1 / 2 | 9096 / 9097 | Metrics |
-| Target HTTP | 8080 / 9090 | Service / metrics |
-| Target HTTPS | 8443 / 9093 | Service / metrics |
-| Target HTTP/2 | 8444 / 9094 | Service / metrics |
-| Target gRPC | 9000 / 9095 | Service / metrics |
-| Prometheus | 9091 | UI |
+## In-cluster ports
+
+| Service | Ports | Purpose |
+|---------|-------|---------|
+| Master | 8080 / 9002 | Web UI + gRPC-Web / gRPC (agents) |
+| Agent (2 replicas) | 9091 | Metrics |
+| Target HTTP / TLS / HTTP2 | 8080, 9090 | Service / metrics |
+| Target gRPC | 9000, 9090 | Service / metrics |
+| Prometheus | 9090 | UI |
 | Grafana | 3000 | UI |
 
 ## Grafana Dashboards
 
-1. **Chaos Agents Dashboard** - Agent metrics and activity
-2. **Chaos Target Services Dashboard** - Service performance
-3. **Client Perspective** - Load testing from client view
-4. **Service Perspective** - Load testing from service view
+1. **Chaos Generator - Target HTTP Services** - request rate, latency and error
+   rates per protocol and TLS variant
+2. **Client vs Service - Load Testing Comparison** - client versus service view
 
 ## Troubleshooting
 
 ```bash
-docker ps          # running containers
-make status        # local processes and listening ports
-make logs          # follow the background stack logs
-make clean-certs   # remove generated TLS certificates
+make kind-status                 # deployments, pods and services
+make kind-logs                   # application logs
+kubectl -n chaos-testing get pods
+kubectl -n chaos-testing describe pod <pod>
+make clean-certs                 # remove generated TLS certificates
 ```
 
-## Kubernetes
+| Symptom | Fix |
+|---------|-----|
+| Pods in `ImagePullBackOff` | The images were not loaded (`make kind-images`), or the pod's image name does not match the loaded image. Podman needs the `localhost/` prefix, which the Makefile derives automatically from the engine. |
+| `make proxy` reports the stack is not deployed | Run `make kind-up` first. |
+| A proxy port is already in use | `make proxy WEB_UI_PORT=9100 PROMETHEUS_PORT=9191 GRAFANA_PORT=3100` |
+
+## Kubernetes (registry-based)
 
 ```bash
 kubectl apply -k manifests/server/
 kubectl apply -k manifests/agent/
-kubectl port-forward svc/chaos-master-service 8080:8080
-# open http://localhost:8080/
 ```
 
-See [KUBERNETES.md](KUBERNETES.md) for the full guide.
-
-### Local kind cluster
-
-```bash
-make manifests           # render manifests/kind into manifests/generated
-make kind-up             # cluster + images + deploy (run on the host, not in distrobox)
-make kind-host           # same, forwarded to the host from a distrobox session
-make kind-status         # deployments, pods, services and the PVC
-make kind-logs           # master, agent and target logs
-make kind-verify         # agents that registered with the master
-make kind-port-forward   # web control panel on http://localhost:8080/
-make kind-down           # delete the Chaos resources
-make kind-delete         # delete the kind cluster
-make kind-clean          # delete the cluster and the generated manifests
-```
-
-See [manifests/kind/README.md](manifests/kind/README.md).
+See [KUBERNETES.md](KUBERNETES.md) for the full guide and
+[manifests/kind/README.md](manifests/kind/README.md) for the local cluster.
 
 ## See Also
 
-- [DOCKER-SETUP.md](DOCKER-SETUP.md) - Detailed container and monitoring documentation
-- [CONFIGURATION.md](CONFIGURATION.md) - Configuration options
-- [readme.md](readme.md) - Project overview
+- [DOCKER-SETUP.md](DOCKER-SETUP.md) - container images and the distroless runtime
+- [CONFIGURATION.md](CONFIGURATION.md) - configuration options
+- [readme.md](readme.md) - project overview
