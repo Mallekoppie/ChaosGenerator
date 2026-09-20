@@ -22,6 +22,15 @@
 #   make stop                   Stop the background stack
 #   make run-full-stack         start + Prometheus/Grafana
 #
+# Kubernetes (local kind cluster):
+#   make manifests              Render manifests/kind into manifests/generated
+#   make kind-up                Create the cluster, load the images, deploy (host only)
+#   make kind-host              Run 'make kind-up' on the host (for distrobox sessions)
+#   make kind-status | kind-logs | kind-verify | kind-port-forward
+#   make kind-down              Remove the Chaos resources from the cluster
+#   make kind-delete            Delete the kind cluster
+#   make kind-clean             Delete the kind cluster and the generated manifests
+#
 # Housekeeping:
 #   make clean                  Remove binaries, generated code and web build output
 #   make test                   Go test suite + Flutter tests
@@ -104,6 +113,13 @@ help:
 	@echo "  make monitoring-up       Docker if available, otherwise native binaries"
 	@echo "  make monitoring-down | monitoring-logs | monitoring-restart"
 	@echo "  make monitoring-install  Download Prometheus/Grafana into .monitoring"
+	@echo
+	@echo "Kubernetes (local kind):"
+	@echo "  make manifests           Render $(MANIFEST_DIR) into $(GENERATED_DIR)"
+	@echo "  make kind-up             kind cluster + images + deploy (run on the host)"
+	@echo "  make kind-host           Run 'make kind-up' on the host via $(DISTROBOX_EXEC)"
+	@echo "  make kind-status | kind-logs | kind-verify | kind-port-forward"
+	@echo "  make kind-down | kind-delete | kind-clean"
 	@echo
 	@echo "Housekeeping:"
 	@echo "  make clean | test | lint"
@@ -552,6 +568,180 @@ docker-build-target-http:
 
 docker-build-target-grpc:
 	$(DOCKER) build -f build/dockerfile-target-grpc -t $(REGISTRY)target-grpc:$(IMAGE_TAG) .
+
+# --- Local kind cluster -----------------------------------------------------
+# `make manifests` renders manifests/kind into manifests/generated using the
+# same image names and tags that `make docker-build` produces. The `kind-*`
+# targets then create a throwaway cluster, load those images into it and deploy
+# the master, the agents and the target service.
+#
+# kind drives podman (or docker), which cannot run inside the distrobox
+# container this repo is usually edited in. Run the kind targets on the host:
+#   make kind-host
+# or directly:
+#   distrobox-host-exec bash -lc 'cd <repo> && make kind-up'
+KIND             ?= kind
+KUBECTL          ?= kubectl
+KIND_CLUSTER     ?= chaos
+KIND_NAMESPACE   := chaos-testing
+MANIFEST_DIR     := manifests/kind
+GENERATED_DIR    := manifests/generated
+CONTAINER_ENGINE ?= $(shell command -v docker >/dev/null 2>&1 && echo docker || echo podman)
+DISTROBOX_EXEC   ?= distrobox-host-exec
+KIND_IMAGES      := $(REGISTRY)chaos-master:$(IMAGE_TAG) $(REGISTRY)chaos-agent:$(IMAGE_TAG) $(REGISTRY)target-http:$(IMAGE_TAG)
+# kind needs the experimental flag to drive podman instead of docker.
+ifeq ($(CONTAINER_ENGINE),podman)
+KIND_ENV         := KIND_EXPERIMENTAL_PROVIDER=podman
+else
+KIND_ENV         :=
+endif
+
+.PHONY: manifests kind-preflight kind-create kind-images kind-deploy kind-verify \
+        kind-up kind-host kind-status kind-logs kind-port-forward kind-down \
+        kind-delete kind-clean
+
+# Render the kind manifests with the local image names/tags. No cluster and no
+# container engine required, so this also works inside the dev container.
+manifests:
+	@rm -rf $(GENERATED_DIR)
+	@mkdir -p $(GENERATED_DIR)/server $(GENERATED_DIR)/agent $(GENERATED_DIR)/target
+	@cp $(MANIFEST_DIR)/namespace.yaml $(GENERATED_DIR)/namespace.yaml
+	@cp $(MANIFEST_DIR)/server/*.yaml $(GENERATED_DIR)/server/
+	@cp $(MANIFEST_DIR)/agent/*.yaml $(GENERATED_DIR)/agent/
+	@cp $(MANIFEST_DIR)/target/*.yaml $(GENERATED_DIR)/target/
+	@printf '%s\n' \
+		'apiVersion: kustomize.config.k8s.io/v1beta1' \
+		'kind: Kustomization' \
+		'' \
+		'namespace: $(KIND_NAMESPACE)' \
+		'' \
+		'resources:' \
+		'  - namespace.yaml' \
+		'  - server' \
+		'  - agent' \
+		'  - target' \
+		'' \
+		'images:' \
+		'  - name: chaos-master' \
+		'    newName: $(REGISTRY)chaos-master' \
+		'    newTag: $(IMAGE_TAG)' \
+		'  - name: chaos-agent' \
+		'    newName: $(REGISTRY)chaos-agent' \
+		'    newTag: $(IMAGE_TAG)' \
+		'  - name: target-http' \
+		'    newName: $(REGISTRY)target-http' \
+		'    newTag: $(IMAGE_TAG)' \
+		> $(GENERATED_DIR)/kustomization.yaml
+	@$(KUBECTL) kustomize $(GENERATED_DIR) > $(GENERATED_DIR)/kind-all.yaml
+	@$(KUBECTL) kustomize $(GENERATED_DIR)/server > $(GENERATED_DIR)/kind-server.yaml
+	@$(KUBECTL) kustomize $(GENERATED_DIR)/agent > $(GENERATED_DIR)/kind-agent.yaml
+	@$(KUBECTL) kustomize $(GENERATED_DIR)/target > $(GENERATED_DIR)/kind-target.yaml
+	@echo "Generated kind manifests in $(GENERATED_DIR):"
+	@ls -1 $(GENERATED_DIR)/kind-*.yaml | sed 's|^|  |'
+
+# Refuse to run from inside distrobox: kind needs the host's container engine.
+kind-preflight:
+	@command -v $(KIND) >/dev/null 2>&1 || { \
+		echo "$(KIND) not found - install it on the host (https://kind.sigs.k8s.io/)."; exit 1; }
+	@command -v $(KUBECTL) >/dev/null 2>&1 || { \
+		echo "$(KUBECTL) not found - install it on the host."; exit 1; }
+	@command -v $(CONTAINER_ENGINE) >/dev/null 2>&1 || { \
+		echo "$(CONTAINER_ENGINE) not found - install it on the host, or pass CONTAINER_ENGINE=docker."; exit 1; }
+	@if [ -e /run/.containerenv ] || [ -n "$$CONTAINER_ID" ]; then \
+		echo "$(KIND) cannot run inside distrobox ($${CONTAINER_ID:-container})."; \
+		echo; \
+		echo "Run the kind targets on the host instead:"; \
+		echo "  $(DISTROBOX_EXEC) bash -lc 'cd $(CURDIR) && make kind-up'"; \
+		echo; \
+		echo "or from here: make kind-host"; \
+		exit 1; \
+	fi
+	@$(CONTAINER_ENGINE) info >/dev/null 2>&1 || { \
+		echo "$(CONTAINER_ENGINE) is not reachable - start it on the host (podman: systemctl --user start podman.socket)."; exit 1; }
+
+kind-create: kind-preflight
+	@if $(KIND) get clusters 2>/dev/null | grep -qx '$(KIND_CLUSTER)'; then \
+		echo "kind cluster '$(KIND_CLUSTER)' already exists."; \
+	else \
+		echo "Creating kind cluster '$(KIND_CLUSTER)' with $(CONTAINER_ENGINE)..."; \
+		$(KIND_ENV) $(KIND) create cluster --name $(KIND_CLUSTER); \
+	fi
+
+# Build the images kind deploys and load them into the node, so the pods never
+# need a registry.
+kind-images: kind-preflight
+	@echo "Building images with $(CONTAINER_ENGINE)..."
+	@$(MAKE) --no-print-directory docker-build-master docker-build-agent \
+		docker-build-target-http DOCKER=$(CONTAINER_ENGINE)
+	@for image in $(KIND_IMAGES); do \
+		echo "Loading $$image into kind cluster '$(KIND_CLUSTER)'..."; \
+		if [ "$(CONTAINER_ENGINE)" = "docker" ]; then \
+			$(KIND_ENV) $(KIND) load docker-image --name $(KIND_CLUSTER) $$image; \
+		else \
+			tmp=$$(mktemp -d); \
+			$(CONTAINER_ENGINE) save --format=docker-archive -o $$tmp/image.tar $$image; \
+			$(KIND_ENV) $(KIND) load image-archive --name $(KIND_CLUSTER) $$tmp/image.tar; \
+			rm -rf $$tmp; \
+		fi; \
+	done
+	@echo "Images loaded into kind cluster '$(KIND_CLUSTER)'."
+
+kind-deploy: manifests kind-create
+	@$(KUBECTL) apply -f $(GENERATED_DIR)/kind-all.yaml
+	@for name in chaos-master chaos-agent target-http; do \
+		echo "Waiting for deployment/$$name..."; \
+		$(KUBECTL) -n $(KIND_NAMESPACE) rollout status deployment/$$name --timeout=180s; \
+	done
+	@$(MAKE) --no-print-directory kind-status
+
+kind-verify:
+	@echo "Agents connected to the master:"
+	@$(KUBECTL) -n $(KIND_NAMESPACE) logs -l app=chaos-master --tail=200 2>/dev/null \
+		| grep "Agent connected" || echo "  (none yet)"
+
+kind-up: kind-create kind-images kind-deploy
+	@echo
+	@echo "kind cluster '$(KIND_CLUSTER)' is running (namespace $(KIND_NAMESPACE))."
+	@echo "  Web UI      make kind-port-forward   then open http://localhost:8080/"
+	@echo "  Target URL  http://target-http.$(KIND_NAMESPACE).svc.cluster.local:8080"
+	@echo "  Register    $(KUBECTL) -n $(KIND_NAMESPACE) get secret chaos-master-secrets -o jsonpath='{.data.registerSecret}' | base64 -d"
+	@echo "  Status      make kind-status    Logs: make kind-logs"
+	@echo "  Teardown    make kind-down | kind-delete | kind-clean"
+
+# Convenience for a distrobox session: run the host's make with the host's tools.
+kind-host:
+	@command -v $(DISTROBOX_EXEC) >/dev/null 2>&1 || { \
+		echo "$(DISTROBOX_EXEC) not found - run 'make kind-up' in a host terminal instead."; exit 1; }
+	@echo "Running 'make kind-up' on the host via $(DISTROBOX_EXEC)..."
+	@$(DISTROBOX_EXEC) bash -lc 'cd "$(CURDIR)" && make kind-up KIND_CLUSTER=$(KIND_CLUSTER) REGISTRY=$(REGISTRY) IMAGE_TAG=$(IMAGE_TAG)'
+
+kind-status:
+	@$(KUBECTL) -n $(KIND_NAMESPACE) get deployments,pods,svc,pvc 2>/dev/null \
+		|| echo "Cannot reach kind cluster '$(KIND_CLUSTER)' - run 'make kind-up'."
+
+kind-logs:
+	@$(KUBECTL) -n $(KIND_NAMESPACE) logs -l app=chaos-master --tail=50 --prefix
+	@$(KUBECTL) -n $(KIND_NAMESPACE) logs -l app=chaos-agent --tail=50 --prefix
+	@$(KUBECTL) -n $(KIND_NAMESPACE) logs -l app=target-http --tail=50 --prefix
+
+kind-port-forward:
+	@echo "Master web control panel: http://localhost:8080/ (Ctrl-C to stop)"
+	@$(KUBECTL) -n $(KIND_NAMESPACE) port-forward svc/chaos-master-service 8080:8080
+
+kind-down:
+	@if [ -f $(GENERATED_DIR)/kind-all.yaml ]; then \
+		$(KUBECTL) delete -f $(GENERATED_DIR)/kind-all.yaml --ignore-not-found; \
+	else \
+		$(KUBECTL) delete namespace $(KIND_NAMESPACE) --ignore-not-found; \
+	fi
+	@echo "Removed the Chaos resources (kind cluster '$(KIND_CLUSTER)' is still running)."
+
+kind-delete:
+	@$(KIND) delete cluster --name $(KIND_CLUSTER) || true
+
+kind-clean: kind-delete
+	@rm -rf $(GENERATED_DIR)
+	@echo "Removed kind cluster '$(KIND_CLUSTER)' and $(GENERATED_DIR)."
 
 # --- Tests and linting ------------------------------------------------------
 .PHONY: test test-go test-web lint lint-go lint-web

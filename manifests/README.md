@@ -11,12 +11,21 @@ manifests/
 │   ├── service.yaml
 │   ├── pvc.yaml
 │   └── kustomization.yaml
-└── agent/            # Chaos Agent manifests
-    ├── deployment.yaml
-    ├── configmap.yaml
-    ├── deployment-with-configmap.yaml
-    └── kustomization.yaml
+├── agent/            # Chaos Agent manifests
+│   ├── deployment.yaml
+│   ├── configmap.yaml
+│   ├── deployment-with-configmap.yaml
+│   └── kustomization.yaml
+├── target-http/      # Target HTTP/HTTPS/HTTP2 service manifests
+└── kind/             # Self-contained manifests for a local kind cluster
+    ├── namespace.yaml
+    ├── server/       # master Deployment, Service, PVC, Secret
+    ├── agent/        # agent Deployment
+    └── target/       # target-http Deployment + Service
 ```
+
+`make manifests` renders `manifests/kind/` into `manifests/generated/`
+(gitignored) - see [kind/README.md](kind/README.md).
 
 ## Deployment
 
@@ -65,6 +74,37 @@ kubectl apply -f manifests/agent/deployment-with-configmap.yaml
 kubectl apply -k manifests/agent/
 ```
 
+## Local kind Cluster
+
+`manifests/kind/` is a self-contained set for a throwaway
+[kind](https://kind.sigs.k8s.io/) cluster: the master, the agents and a plain
+HTTP/1.1 target in one namespace, with no ServiceMonitor CRDs, no TLS and image
+names that match what `make docker-build` produces.
+
+```bash
+make kind-up             # create cluster + build/load images + deploy
+make kind-status         # deployments, pods, services and the PVC
+make kind-verify         # agents that registered with the master
+make kind-logs           # master, agent and target logs
+make kind-port-forward   # web control panel on http://localhost:8080/
+make kind-down           # delete the Chaos resources
+make kind-delete         # delete the kind cluster
+make kind-clean          # delete the cluster and manifests/generated
+```
+
+`make manifests` renders the set into `manifests/generated/` (`kind-all.yaml`
+plus `kind-server.yaml`, `kind-agent.yaml` and `kind-target.yaml`) and honours
+`REGISTRY=` / `IMAGE_TAG=` overrides:
+
+```bash
+make manifests REGISTRY=registry.example.com/ IMAGE_TAG=1.2.3
+kubectl apply -f manifests/generated/kind-all.yaml
+```
+
+The `kind-*` targets drive podman (or docker), so they must run on the host -
+from inside distrobox use `make kind-host`. See
+[kind/README.md](kind/README.md) for details and troubleshooting.
+
 ## Configuration
 
 ### Agent Configuration
@@ -78,6 +118,10 @@ Key environment variables:
 - `CHAOS_AGENT_VERSION`: Agent version string
 - `CHAOS_AGENT_PORT`: Agent port (not exposed, for future use)
 - `CHAOS_AGENT_METRICS_PORT`: Metrics port
+
+The agent image is distroless (no shell), so the liveness/readiness probes hit
+the `/health` endpoint of the metrics server over HTTP instead of running
+`pgrep` through a shell.
 
 ### Server Configuration
 

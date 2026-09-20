@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: target-http
+  labels:
+    app: target-http
+    project: chaos-generator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: target-http
+  template:
+    metadata:
+      labels:
+        app: target-http
+        project: chaos-generator
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: target-http
+        image: target-http:latest
+        # `make kind-images` loads the locally built image into the node. Without
+        # IfNotPresent the injected ":latest" tag defaults to Always, which makes
+        # the kubelet try (and fail) to pull target-http from a registry.
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        - containerPort: 9090
+          name: metrics
+          protocol: TCP
+        env:
+        - name: CHAOS_TARGET_PROTOCOL
+          value: "http1"
+        - name: CHAOS_TARGET_PORT
+          value: "8080"
+        - name: CHAOS_TARGET_METRICS_PORT
+          value: "9090"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10

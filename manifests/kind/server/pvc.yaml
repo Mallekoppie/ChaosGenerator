@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: chaos-master-pvc
+  labels:
+    app: chaos-master
+    project: chaos-generator
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # kind ships the local-path provisioner as the default `standard` StorageClass.
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 1Gi

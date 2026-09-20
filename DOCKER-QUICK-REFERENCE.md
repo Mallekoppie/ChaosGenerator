@@ -19,6 +19,13 @@ make docker-build REGISTRY=registry.example.com/ IMAGE_TAG=1.2.3
 The master image embeds the web control panel. Override the hosting path with
 `make docker-build-master BASE_HREF=/chaos/` if needed.
 
+The runtime images are distroless
+(`gcr.io/distroless/static-debian13:nonroot`): no shell, no package manager, no
+libc, running as uid 65532. Use `httpGet`/`tcpSocket` probes (the master serves
+`/healthz`, the agent and the HTTP target serve `/health`) and the `:debug` tag
+when you need a shell for troubleshooting - see
+[DOCKER-SETUP.md](DOCKER-SETUP.md#distroless-runtime-images).
+
 ## Local stack (native processes)
 
 ```bash
@@ -94,6 +101,23 @@ kubectl port-forward svc/chaos-master-service 8080:8080
 ```
 
 See [KUBERNETES.md](KUBERNETES.md) for the full guide.
+
+### Local kind cluster
+
+```bash
+make manifests           # render manifests/kind into manifests/generated
+make kind-up             # cluster + images + deploy (run on the host, not in distrobox)
+make kind-host           # same, forwarded to the host from a distrobox session
+make kind-status         # deployments, pods, services and the PVC
+make kind-logs           # master, agent and target logs
+make kind-verify         # agents that registered with the master
+make kind-port-forward   # web control panel on http://localhost:8080/
+make kind-down           # delete the Chaos resources
+make kind-delete         # delete the kind cluster
+make kind-clean          # delete the cluster and the generated manifests
+```
+
+See [manifests/kind/README.md](manifests/kind/README.md).
 
 ## See Also
 

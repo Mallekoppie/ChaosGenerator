@@ -36,6 +36,23 @@ If you host the control panel under a sub-path, pass `BASE_HREF`:
 make docker-build-master BASE_HREF=/chaos/
 ```
 
+## Distroless Runtime Images
+
+The runtime stage of all four images is
+[`gcr.io/distroless/static-debian13:nonroot`](https://github.com/GoogleContainerTools/distroless),
+so a running container holds only the static binary plus its runtime
+dependencies - a CA bundle (`/etc/ssl/certs`), `/tmp`, `/etc/passwd` - and runs
+as the **`nonroot` user (uid/gid 65532)**. There is no shell, no package manager
+and no libc.
+
+| Concern | Consequence |
+|---------|-------------|
+| Probes | Must be `httpGet`/`tcpSocket`/`grpc`. An `exec` probe that runs `/bin/sh` can never succeed. The master serves `/healthz`; the agent and the HTTP target serve `/health` (the agent's is on its metrics port). |
+| Interactive access | `docker exec ... sh` is impossible. For a shell use the `:debug` variant, e.g. `podman run --rm -it --entrypoint=/busybox/sh gcr.io/distroless/static-debian13:debug`, or `kubectl debug -it <pod> --image=busybox:stable --target=<container>`. |
+| Writable volumes | `/data` is created in the build stage already owned by uid 65532, so named volumes (`-v chaos-master-data:/data`) work unchanged. A bind mount of a root-owned host directory fails with `permission denied`: `chown 65532:65532 <dir>` or add `--user 0`. |
+| CA certificates | Bundled, so outbound TLS (OIDC discovery, HTTPS targets with public CAs) keeps working without `apk add ca-certificates`. |
+| `$HOME` / `/tmp` | The `nonroot` variant sets `WORKDIR /home/nonroot`, and `/tmp` exists with mode `01777`, so tools that assume either keep working. |
+
 ## Running Containers
 
 There is no long-lived Compose file for the application itself - deploy the
