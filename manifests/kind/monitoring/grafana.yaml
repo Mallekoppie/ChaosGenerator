@@ -18,7 +18,9 @@ spec:
     spec:
       containers:
       - name: grafana
-        image: grafana/grafana:latest
+        # Pinned on purpose: `latest` silently changes Grafana's behaviour between
+        # builds (13.2.2 is the version this deployment was verified against).
+        image: grafana/grafana:13.2.2
         env:
         - name: GF_SECURITY_ADMIN_USER
           value: "admin"
@@ -41,25 +43,47 @@ spec:
           readOnly: true
         - name: data
           mountPath: /var/lib/grafana
+        # Interactive dashboards fan out into many PromQL queries at once. Under
+        # that load Grafana's handlers can take seconds to answer, so it needs real
+        # CPU: it was capped at 500m, which made /api/health miss the 1s probe
+        # timeout and got the container liveness-killed while it was still working.
         resources:
           requests:
-            memory: "128Mi"
-            cpu: "100m"
+            memory: "256Mi"
+            cpu: "250m"
           limits:
-            memory: "512Mi"
-            cpu: "500m"
+            memory: "1Gi"
+            cpu: "2000m"
+        # /api/health is the right endpoint (unauthenticated, answering in well
+        # under a millisecond when idle). These timings let it answer while the
+        # instance is busy, instead of restarting a healthy Grafana.
+        startupProbe:
+          httpGet:
+            path: /api/health
+            port: http
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 30
         readinessProbe:
           httpGet:
             path: /api/health
             port: http
-          initialDelaySeconds: 15
+          initialDelaySeconds: 5
           periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
         livenessProbe:
           httpGet:
             path: /api/health
             port: http
           initialDelaySeconds: 30
           periodSeconds: 30
+          timeoutSeconds: 5
+          # 6 x 30s = three minutes of consecutive failures before a restart.
+          failureThreshold: 6
+      # A busy Grafana can take a while to shut down; without this it was SIGKILLed
+      # (exit code 137) instead of exiting cleanly.
+      terminationGracePeriodSeconds: 60
       volumes:
       - name: datasources
         configMap:
