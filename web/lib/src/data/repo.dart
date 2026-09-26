@@ -76,6 +76,19 @@ class AgentsRepository extends ChangeNotifier {
       return e.message ?? 'Failed to clear agents';
     }
   }
+
+  Timer? _timer;
+
+  /// Refreshes the agent list every [interval] until [stopPolling] is called,
+  /// so agents that connect or disconnect show up without a manual refresh.
+  void startPolling({Duration interval = const Duration(seconds: 3)}) {
+    _timer ??= Timer.periodic(interval, (_) => load());
+  }
+
+  void stopPolling() {
+    _timer?.cancel();
+    _timer = null;
+  }
 }
 
 /// Loads and mutates the test targets.

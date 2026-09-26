@@ -272,10 +272,24 @@ The system uses a client-server architecture where:
 ### Communication Flow
 
 1. Agent starts and registers with master (gets unique ID)
-2. Agent establishes bidirectional stream with master
+2. Agent establishes bidirectional stream with master and sends a heartbeat
+   immediately, so it appears online without waiting for the first periodic beat
 3. Agent sends periodic heartbeats to maintain connection
 4. Master sends commands down the stream (AddTests, StartTest, etc.)
 5. Agent executes commands and sends responses back
+
+### Agent Liveness
+
+The agent list is a live view of the connected agents:
+
+- An agent row is written on registration and removed when its stream ends, so
+  the UI only ever shows agents that are reachable. Starting a test fans out to
+  every connected agent (or the subset named in the agent selection).
+- The master reaps any connection that stops heartbeating (30s, i.e. two missed
+  10s beats), which covers pods that die without closing their socket.
+- Agents reconnect with exponential backoff (1s to 30s), re-registering with the
+  master each time. Restarting a master therefore repopulates the fleet on its
+  own without restarting the agents.
 
 ### Benefits of This Architecture
 

@@ -24,6 +24,14 @@ class _AgentsScreenState extends State<AgentsScreen> {
   void initState() {
     super.initState();
     widget.repository.load();
+    // Keep the fleet list live: agents connect and disconnect in the cluster.
+    widget.repository.startPolling();
+  }
+
+  @override
+  void dispose() {
+    widget.repository.stopPolling();
+    super.dispose();
   }
 
   void _showMessage(String message) {

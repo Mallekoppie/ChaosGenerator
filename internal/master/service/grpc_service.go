@@ -41,9 +41,18 @@ func (s *ChaosMasterServer) GetAllAgents(ctx context.Context, req *contracts.Get
 		return nil, status.Errorf(codes.Internal, "failed to get agents: %v", err)
 	}
 
-	pbAgents := make([]*contracts.Agent, len(agents))
-	for i, agent := range agents {
-		pbAgents[i] = agentModelToProto(agent)
+	// Rows are written when an agent registers and removed when its stream ends,
+	// so anything still in the database without a live connection is stale (a
+	// crashed master, for example). Report only agents that are connected right
+	// now and mark them online.
+	connMgr := GetConnectionManager()
+	pbAgents := make([]*contracts.Agent, 0, len(agents))
+	for _, agent := range agents {
+		if !connMgr.IsAgentConnected(agent.Id) {
+			continue
+		}
+		agent.Status = "online"
+		pbAgents = append(pbAgents, agentModelToProto(agent))
 	}
 
 	return &contracts.GetAllAgentsResponse{Agents: pbAgents}, nil
@@ -86,14 +95,16 @@ func (s *ChaosMasterServer) DeleteAgent(ctx context.Context, req *contracts.Dele
 func (s *ChaosMasterServer) ClearAllAgents(ctx context.Context, req *contracts.ClearAllAgentsRequest) (*contracts.ClearAllAgentsResponse, error) {
 	platform.Log.Info("Received ClearAllAgents request")
 
-	// First, close all active connections
-	connMgr := GetConnectionManager()
-	activeAgentIds := connMgr.GetAllAgentIds()
+	existing, err := logic.GetAllAgents()
+	if err != nil {
+		platform.Log.Error("Error counting agents before clear", zap.Error(err))
+	}
 
-	// Note: Closing connections will trigger RemoveConnection which deletes from DB
-	// So we clear the database after to ensure everything is cleaned up
+	// Close the live streams first: each owning handler can then delete its own
+	// row, and still-running agents reconnect and register again. Without this
+	// the connection map and the registry would disagree.
+	GetConnectionManager().CloseAll()
 
-	// Clear from database
 	count, err := logic.ClearAllAgents()
 	if err != nil {
 		platform.Log.Error("Error clearing all agents", zap.Error(err))
@@ -104,14 +115,16 @@ func (s *ChaosMasterServer) ClearAllAgents(ctx context.Context, req *contracts.C
 		}, nil
 	}
 
+	deletedCount := len(existing) + count
+
 	platform.Log.Info("All agents cleared from database",
-		zap.Int("deletedCount", count),
-		zap.Int("activeConnections", len(activeAgentIds)))
+		zap.Int("deletedCount", deletedCount),
+		zap.Int("disconnectedConnections", len(existing)))
 
 	return &contracts.ClearAllAgentsResponse{
 		Success:      true,
-		Message:      fmt.Sprintf("Successfully cleared %d agent(s) from database", count),
-		DeletedCount: int32(count),
+		Message:      fmt.Sprintf("Successfully cleared %d agent(s) from database", deletedCount),
+		DeletedCount: int32(deletedCount),
 	}, nil
 }
 
@@ -314,26 +327,37 @@ func (s *ChaosMasterServer) StartTestExecution(ctx context.Context, req *contrac
 	// Generate test execution ID
 	testExecutionId := fmt.Sprintf("test-%d", time.Now().Unix())
 
-	// Get connected agents
+	// Resolve the agents that should run this test. Only live connections are
+	// eligible, whatever the caller asked for: the registry can briefly contain
+	// agents that have already gone away.
 	connMgr := GetConnectionManager()
-	var agentIds []string
 
+	var requested []string
 	if req.AgentSelection == "all" || req.AgentSelection == "" {
-		agentIds = connMgr.GetAllAgentIds()
+		requested = connMgr.GetAllAgentIds()
 	} else {
 		// Parse comma-separated agent IDs
-		agentIds = parseAgentSelection(req.AgentSelection)
+		requested = parseAgentSelection(req.AgentSelection)
+	}
+
+	agentIds := make([]string, 0, len(requested))
+	for _, agentId := range requested {
+		if connMgr.IsAgentConnected(agentId) {
+			agentIds = append(agentIds, agentId)
+		} else {
+			platform.Log.Warn("Skipping agent that is not connected", zap.String("agentId", agentId))
+		}
 	}
 
 	if len(agentIds) == 0 {
 		return &contracts.StartTestExecutionResponse{
 			Success: false,
-			Message: "No agents available or selected",
+			Message: "No connected agents available or selected",
 		}, nil
 	}
 
-	// Send StartTestCommand to all selected agents
-	successCount := 0
+	// Send StartTestCommand to every live agent and remember the ones we reached.
+	startedAgents := make([]string, 0, len(agentIds))
 	for _, agentId := range agentIds {
 		command := &contracts.AgentCommand{
 			CommandId: fmt.Sprintf("cmd-%s-%s", testExecutionId, agentId),
@@ -350,17 +374,17 @@ func (s *ChaosMasterServer) StartTestExecution(ctx context.Context, req *contrac
 			},
 		}
 
-		_, err := connMgr.SendCommand(agentId, command)
-		if err != nil {
+		if err := connMgr.SendCommand(agentId, command); err != nil {
 			platform.Log.Error("Error sending start command to agent",
 				zap.String("agentId", agentId),
 				zap.Error(err))
-		} else {
-			successCount++
+			continue
 		}
+
+		startedAgents = append(startedAgents, agentId)
 	}
 
-	if successCount == 0 {
+	if len(startedAgents) == 0 {
 		return &contracts.StartTestExecutionResponse{
 			Success: false,
 			Message: "Failed to start test on any agent",
@@ -369,9 +393,9 @@ func (s *ChaosMasterServer) StartTestExecution(ctx context.Context, req *contrac
 
 	platform.Log.Info("Test execution started",
 		zap.String("testExecutionId", testExecutionId),
-		zap.Int("agents", successCount))
+		zap.Int("agents", len(startedAgents)))
 
-	// Track the running test
+	// Track the running test with the agents that actually accepted the command.
 	tracker := GetTestExecutionTracker()
 	runningTest := &RunningTest{
 		TestExecutionId:        testExecutionId,
@@ -380,7 +404,7 @@ func (s *ChaosMasterServer) StartTestExecution(ctx context.Context, req *contrac
 		TargetId:               target.ID,
 		TargetName:             target.Name,
 		SimulatedUsersPerAgent: req.SimulatedUsersPerAgent,
-		AgentIds:               agentIds[:successCount],
+		AgentIds:               startedAgents,
 		StartTime:              time.Now(),
 	}
 	tracker.AddTest(runningTest)
@@ -388,7 +412,7 @@ func (s *ChaosMasterServer) StartTestExecution(ctx context.Context, req *contrac
 	return &contracts.StartTestExecutionResponse{
 		TestExecutionId: testExecutionId,
 		Success:         true,
-		Message:         fmt.Sprintf("Test started on %d agent(s)", successCount),
+		Message:         fmt.Sprintf("Test started on %d agent(s)", len(startedAgents)),
 	}, nil
 }
 
@@ -431,8 +455,7 @@ func (s *ChaosMasterServer) StopTestExecution(ctx context.Context, req *contract
 			},
 		}
 
-		_, err := connMgr.SendCommand(agentId, command)
-		if err != nil {
+		if err := connMgr.SendCommand(agentId, command); err != nil {
 			platform.Log.Error("Error sending stop command to agent",
 				zap.String("agentId", agentId),
 				zap.Error(err))

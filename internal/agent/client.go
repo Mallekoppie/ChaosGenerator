@@ -2,8 +2,11 @@ package agent
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"log"
+	"sync"
 	"time"
 
 	pb "mallekoppie/ChaosGenerator/internal/contracts"
@@ -12,13 +15,22 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
+const (
+	// heartbeatInterval must stay comfortably below the master's heartbeat
+	// timeout so a couple of dropped beats are tolerated before the master
+	// declares the connection dead.
+	heartbeatInterval = 10 * time.Second
+)
+
 // Client represents an agent client that connects to the master
 type Client struct {
 	masterAddress string
 	agentId       string
 	handler       *CommandHandler
-	stream        pb.ChaosMaster_ConnectAgentClient
-	conn          *grpc.ClientConn
+
+	// sendMu serialises writes to the stream. gRPC forbids concurrent SendMsg
+	// calls and both the heartbeat and command loops write to the same stream.
+	sendMu sync.Mutex
 }
 
 // NewClient creates a new agent client
@@ -30,43 +42,62 @@ func NewClient(masterAddress string, agentId string) *Client {
 	}
 }
 
-// Connect establishes connection to master and starts listening for commands
-func (c *Client) Connect(ctx context.Context) error {
+// ConnectAndServe establishes the stream to the master and blocks until it
+// ends, returning the reason. The caller is expected to reconnect.
+func (c *Client) ConnectAndServe(ctx context.Context) error {
 	log.Printf("Agent connecting to master at %s", c.masterAddress)
 
-	// Connect to master server
 	conn, err := grpc.Dial(c.masterAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		log.Printf("Failed to connect to master: %v", err)
-		return err
+		return fmt.Errorf("failed to dial master: %w", err)
 	}
-	c.conn = conn
+	defer conn.Close()
 
 	client := pb.NewChaosMasterClient(conn)
 
-	// Establish bidirectional stream
 	stream, err := client.ConnectAgent(ctx)
 	if err != nil {
-		log.Printf("Failed to establish stream: %v", err)
-		conn.Close()
-		return err
+		return fmt.Errorf("failed to establish stream: %w", err)
 	}
-	c.stream = stream
+
+	// Send one heartbeat straight away so the master registers this connection
+	// immediately instead of waiting for the first periodic beat.
+	if err := c.send(stream, c.heartbeatMessage()); err != nil {
+		return fmt.Errorf("failed to send handshake heartbeat: %w", err)
+	}
 
 	log.Printf("Agent %s connected to master", c.agentId)
 
-	// Start sending heartbeats
-	go c.sendHeartbeats(ctx)
+	heartbeatCtx, cancelHeartbeats := context.WithCancel(ctx)
+	defer cancelHeartbeats()
+	go c.sendHeartbeats(heartbeatCtx, stream)
 
-	// Start receiving commands
-	go c.receiveCommands(ctx)
+	return c.receiveCommands(ctx, stream)
+}
 
-	return nil
+// heartbeatMessage builds a heartbeat for this agent.
+func (c *Client) heartbeatMessage() *pb.AgentMessage {
+	return &pb.AgentMessage{
+		AgentId: c.agentId,
+		Payload: &pb.AgentMessage_Heartbeat{
+			Heartbeat: &pb.AgentHeartbeat{
+				Timestamp: time.Now().Unix(),
+			},
+		},
+	}
+}
+
+// send writes a message to the stream, serialising concurrent writers.
+func (c *Client) send(stream pb.ChaosMaster_ConnectAgentClient, msg *pb.AgentMessage) error {
+	c.sendMu.Lock()
+	defer c.sendMu.Unlock()
+
+	return stream.Send(msg)
 }
 
 // sendHeartbeats sends periodic heartbeats to the master
-func (c *Client) sendHeartbeats(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second)
+func (c *Client) sendHeartbeats(ctx context.Context, stream pb.ChaosMaster_ConnectAgentClient) {
+	ticker := time.NewTicker(heartbeatInterval)
 	defer ticker.Stop()
 
 	for {
@@ -74,70 +105,50 @@ func (c *Client) sendHeartbeats(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			msg := &pb.AgentMessage{
-				AgentId: c.agentId,
-				Payload: &pb.AgentMessage_Heartbeat{
-					Heartbeat: &pb.AgentHeartbeat{
-						Timestamp: time.Now().Unix(),
-					},
-				},
-			}
+			if err := c.send(stream, c.heartbeatMessage()); err != nil {
+				log.Printf("Error sending heartbeat, dropping connection: %v", err)
 
-			if err := c.stream.Send(msg); err != nil {
-				log.Printf("Error sending heartbeat: %v", err)
+				// Half-close the stream so the master stops waiting for us and the
+				// receive loop unblocks; the runner then reconnects.
+				_ = stream.CloseSend()
 				return
 			}
 		}
 	}
 }
 
-// receiveCommands listens for commands from the master
-func (c *Client) receiveCommands(ctx context.Context) {
+// receiveCommands listens for commands from the master and blocks until the
+// stream ends.
+func (c *Client) receiveCommands(ctx context.Context, stream pb.ChaosMaster_ConnectAgentClient) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return nil
 		default:
-			cmd, err := c.stream.Recv()
-			if err == io.EOF {
+		}
+
+		cmd, err := stream.Recv()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
 				log.Println("Master closed the connection")
-				return
+				return nil
 			}
-			if err != nil {
-				log.Printf("Error receiving command: %v", err)
-				return
-			}
+			return err
+		}
 
-			log.Printf("Received command: %s", cmd.CommandId)
+		log.Printf("Received command: %s", cmd.CommandId)
 
-			// Process command
-			response := c.handler.HandleCommand(cmd)
+		response := c.handler.HandleCommand(cmd)
 
-			// Send response back to master
-			msg := &pb.AgentMessage{
-				AgentId: c.agentId,
-				Payload: &pb.AgentMessage_Response{
-					Response: response,
-				},
-			}
+		msg := &pb.AgentMessage{
+			AgentId: c.agentId,
+			Payload: &pb.AgentMessage_Response{
+				Response: response,
+			},
+		}
 
-			if err := c.stream.Send(msg); err != nil {
-				log.Printf("Error sending response: %v", err)
-				return
-			}
+		if err := c.send(stream, msg); err != nil {
+			return err
 		}
 	}
-}
-
-// Close closes the connection to the master
-func (c *Client) Close() error {
-	if c.stream != nil {
-		if err := c.stream.CloseSend(); err != nil {
-			log.Printf("Error closing stream: %v", err)
-		}
-	}
-	if c.conn != nil {
-		return c.conn.Close()
-	}
-	return nil
 }
