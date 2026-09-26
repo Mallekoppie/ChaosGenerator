@@ -11,6 +11,7 @@ import 'screens/login.dart';
 import 'screens/register_user.dart';
 import 'screens/targets_screen.dart';
 import 'screens/telemetry_screen.dart';
+import 'screens/test_metrics_screen.dart';
 import 'screens/tests_screen.dart';
 import 'screens/use_cases_screen.dart';
 import 'screens/users_screen.dart';
@@ -31,6 +32,7 @@ class _ChaosProcessorAppState extends State<ChaosProcessorApp> {
   late final TargetsRepository _targetsRepository;
   late final UseCasesRepository _useCasesRepository;
   late final ExecutionsRepository _executionsRepository;
+  late final TestMetricsRepository _testMetricsRepository;
   late final UsersRepository _usersRepository;
 
   @override
@@ -45,6 +47,7 @@ class _ChaosProcessorAppState extends State<ChaosProcessorApp> {
     _targetsRepository = TargetsRepository(backend: _backend);
     _useCasesRepository = UseCasesRepository(backend: _backend);
     _executionsRepository = ExecutionsRepository(backend: _backend);
+    _testMetricsRepository = TestMetricsRepository(backend: _backend);
     _usersRepository = UsersRepository(backend: _backend);
   }
 
@@ -54,6 +57,7 @@ class _ChaosProcessorAppState extends State<ChaosProcessorApp> {
     _targetsRepository.dispose();
     _useCasesRepository.dispose();
     _executionsRepository.dispose();
+    _testMetricsRepository.dispose();
     _usersRepository.dispose();
     _backend.shutdown();
     super.dispose();
@@ -130,6 +134,14 @@ class _ChaosProcessorAppState extends State<ChaosProcessorApp> {
                   targets: _targetsRepository,
                   useCases: _useCasesRepository,
                   agents: _agentsRepository,
+                ),
+              ),
+              GoRoute(
+                path: '/tests/metrics/:id',
+                builder: (context, state) => TestMetricsScreen(
+                  executionId: state.pathParameters['id'] ?? '',
+                  metrics: _testMetricsRepository,
+                  executions: _executionsRepository,
                 ),
               ),
               GoRoute(

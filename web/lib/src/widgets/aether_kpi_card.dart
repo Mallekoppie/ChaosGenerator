@@ -14,6 +14,7 @@ class KpiCard extends StatelessWidget {
     this.icon,
     this.accent = AetherPalette.cyan,
     this.width = 250,
+    this.sparkline,
     super.key,
   });
 
@@ -24,6 +25,9 @@ class KpiCard extends StatelessWidget {
   final IconData? icon;
   final Color accent;
   final double width;
+
+  /// Optional inline trend chart rendered below the hint.
+  final Widget? sparkline;
 
   @override
   Widget build(BuildContext context) {
@@ -92,6 +96,7 @@ class KpiCard extends StatelessWidget {
               ],
             ),
           ],
+          if (sparkline != null) ...[const SizedBox(height: 12), sparkline!],
         ],
       ),
     );

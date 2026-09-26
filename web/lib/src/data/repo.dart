@@ -322,3 +322,78 @@ class UsersRepository extends ChangeNotifier {
     }
   }
 }
+
+/// Loads the agent-perspective telemetry for a single test execution.
+///
+/// The master aggregates the cumulative reports the agents push over their
+/// stream, so this is available without Prometheus or Grafana.
+class TestMetricsRepository extends ChangeNotifier {
+  final Backend backend;
+
+  TestMetricsRepository({required this.backend});
+
+  GetTestMetricsResponse? response;
+  bool loading = false;
+  String? error;
+  Timer? _timer;
+
+  List<TestMetricsSample> get samples => response?.samples ?? const [];
+  TestMetricsSummary? get summary => response?.summary;
+  List<TestMetricsWorker> get workers => response?.workers ?? const [];
+
+  Future<void> load(String testExecutionId) async {
+    loading = true;
+    notifyListeners();
+
+    try {
+      final result = await backend.master.getTestMetrics(
+        GetTestMetricsRequest(testExecutionId: testExecutionId),
+      );
+
+      if (!result.found) {
+        response = null;
+        error = result.message.isEmpty
+            ? 'No metrics available for this test execution'
+            : result.message;
+      } else {
+        response = result;
+        error = null;
+      }
+    } on GrpcError catch (e) {
+      backend.handleError(e);
+      error = e.message ?? 'Failed to load test metrics';
+    } catch (e) {
+      error = 'Failed to load test metrics: $e';
+    } finally {
+      loading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Refreshes the metrics every [interval] until [stopPolling] is called.
+  void startPolling(
+    String testExecutionId, {
+    Duration interval = const Duration(seconds: 3),
+  }) {
+    stopPolling();
+    _timer = Timer.periodic(interval, (_) => load(testExecutionId));
+  }
+
+  void stopPolling() {
+    _timer?.cancel();
+    _timer = null;
+  }
+
+  /// Clears the current response so a new drilldown does not render stale data.
+  void reset() {
+    response = null;
+    error = null;
+    loading = false;
+  }
+
+  @override
+  void dispose() {
+    stopPolling();
+    super.dispose();
+  }
+}

@@ -26,6 +26,9 @@ service ChaosMaster {
     rpc StartTestExecution(StartTestExecutionRequest) returns (StartTestExecutionResponse) {}
     rpc StopTestExecution(StopTestExecutionRequest) returns (StopTestExecutionResponse) {}
     rpc GetRunningTests(GetRunningTestsRequest) returns (GetRunningTestsResponse) {}
+
+    // Test metrics operations
+    rpc GetTestMetrics(GetTestMetricsRequest) returns (GetTestMetricsResponse) {}
 }
 
 // Agent messages
@@ -87,6 +90,7 @@ message AgentMessage {
     oneof payload {
         AgentHeartbeat heartbeat = 2;
         CommandResponse response = 3;
+        TestMetricsReport metricsReport = 4;
     }
 }
 
@@ -233,4 +237,127 @@ message RunningTestExecution {
     int32 simulatedUsersPerAgent = 6;
     int32 numberOfAgents = 7;
     int64 startTime = 8; // Unix timestamp
+}
+
+// Test metrics messages (agent -> master reports, master -> UI queries)
+
+// Latency histogram with cumulative bucket counts. Bounds are the inclusive
+// upper edge of each bucket in milliseconds; counts has len(bounds)+1 entries,
+// the final one being the +Inf overflow bucket. Counts are cumulative since the
+// start of the test execution so the master can sum them across agents without
+// losing data when a report is dropped.
+message LatencyHistogram {
+    repeated double boundsMs = 1;
+    repeated int64 counts = 2;
+    int64 total = 3;
+    double sumMs = 4;
+}
+
+// TestMetricsReport is a cumulative snapshot an agent sends for one running
+// test execution. Counters never reset, so the master derives rates from the
+// delta between consecutive reports.
+message TestMetricsReport {
+    string testExecutionId = 1;
+    int64 timestampMs = 2;
+
+    // Cumulative outcome counters since the test started.
+    int64 totalRequests = 10;
+    int64 successRequests = 11;
+    int64 clientErrors = 12;
+    int64 serverErrors = 13;
+    int64 timeouts = 14;
+    int64 connectionResets = 15;
+    int64 otherErrors = 16;
+    map<string, int64> errorsByCode = 17;
+
+    // Cumulative payload volume.
+    int64 bytesIn = 20;
+    int64 bytesOut = 21;
+
+    // Cumulative request latency distribution.
+    LatencyHistogram latency = 22;
+
+    // Worker runtime telemetry.
+    int32 activeUsers = 30;
+    double cpuPercent = 31;
+    int64 memoryBytes = 32;
+    int64 metricsScrapes = 33;
+}
+
+message GetTestMetricsRequest {
+    string testExecutionId = 1;
+}
+
+message TestMetricsSummary {
+    string testExecutionId = 1;
+    string useCaseId = 2;
+    string useCaseName = 3;
+    string targetId = 4;
+    string targetName = 5;
+    string targetAddress = 6;
+    string targetProtocol = 7; // "http", "https", "grpc"
+    int32 simulatedUsersPerAgent = 8;
+    int32 numberOfAgents = 9;
+    int64 startTime = 10; // Unix timestamp
+    bool running = 11;
+
+    // Live fleet envelope.
+    double egressRps = 12;
+    double p50Ms = 13;
+    double p90Ms = 14;
+    double p95Ms = 15;
+    double p99Ms = 16;
+    double errorRate = 17; // 0..1
+    int64 totalRequests = 18;
+    int64 totalErrors = 19;
+    int64 activeUsers = 20;
+    int32 connectedAgents = 21;
+
+    // Cumulative failure demux since the test started.
+    int64 successRequests = 22;
+    int64 clientErrors = 23;
+    int64 serverErrors = 24;
+    int64 timeouts = 25;
+    int64 connectionResets = 26;
+    map<string, int64> errorsByCode = 27; // e.g. "502", "504", "Unavailable"
+}
+
+// One point on the fleet time-series. Outcome counters are deltas observed over
+// the sample interval, not cumulative totals.
+message TestMetricsSample {
+    int64 timestampMs = 1;
+    double egressRps = 2;
+    double p50Ms = 3;
+    double p90Ms = 4;
+    double p95Ms = 5;
+    double p99Ms = 6;
+    int64 ok = 7;
+    int64 clientErrors = 8;
+    int64 serverErrors = 9;
+    int64 timeouts = 10;
+    int64 resets = 11;
+    double errorRate = 12;
+}
+
+// Per-agent runtime row for the worker fleet table.
+message TestMetricsWorker {
+    string agentId = 1;
+    bool online = 2;
+    int32 activeUsers = 3;
+    double egressRps = 4;
+    double observedP99Ms = 5;
+    double cpuPercent = 6;
+    int64 memoryBytes = 7;
+    double errorRate = 8;
+    int64 metricsScrapes = 9;
+    int64 lastUpdateMs = 10;
+}
+
+message GetTestMetricsResponse {
+    bool found = 1;
+    string message = 2;
+    TestMetricsSummary summary = 3;
+    repeated TestMetricsSample samples = 4;
+    repeated TestMetricsWorker workers = 5;
+    LatencyHistogram fleetLatency = 6;
 }

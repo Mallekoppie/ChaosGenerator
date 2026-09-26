@@ -39,10 +39,11 @@ type HTTPExecutor struct {
 	path             string
 	testExecutionID  string
 	sni              string
+	metrics          *TestMetrics
 }
 
 // NewHTTPExecutor creates a new HTTP executor
-func NewHTTPExecutor(targetAddress, targetProtocol string, connectionPooled bool, useCaseID, method, path, testExecutionID, sni string) *HTTPExecutor {
+func NewHTTPExecutor(targetAddress, targetProtocol string, connectionPooled bool, useCaseID, method, path, testExecutionID, sni string, metrics *TestMetrics) *HTTPExecutor {
 	// Configure TLS with SNI if provided
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: true, // For testing purposes
@@ -92,6 +93,7 @@ func NewHTTPExecutor(targetAddress, targetProtocol string, connectionPooled bool
 		path:             path,
 		testExecutionID:  testExecutionID,
 		sni:              sni,
+		metrics:          metrics,
 	}
 
 	return executor
@@ -182,6 +184,14 @@ func (e *HTTPExecutor) Execute(ctx context.Context) error {
 		AgentErrorsTotal.WithLabelValues(e.targetProtocol, e.useCaseID, "request_failed", fmt.Sprintf("%v", e.connectionPooled)).Inc()
 		AgentRequestDuration.WithLabelValues(e.targetProtocol, e.useCaseID, e.method, "error", fmt.Sprintf("%v", e.connectionPooled)).Observe(duration)
 		AgentRequestsTotal.WithLabelValues(e.targetProtocol, e.useCaseID, e.method, "error", fmt.Sprintf("%v", e.connectionPooled)).Inc()
+
+		// A cancelled context means the test is stopping; that is an expected
+		// shutdown, not a target failure, so it must not skew the error demux.
+		if ctx.Err() == nil {
+			outcome, code := classifyRequestError(err)
+			e.metrics.RecordRequest(outcome, code, duration*1000, 0, int64(len(payload)))
+		}
+
 		return fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
@@ -191,8 +201,8 @@ func (e *HTTPExecutor) Execute(ctx context.Context) error {
 	AgentResponseTime.WithLabelValues(e.targetProtocol, e.useCaseID, fmt.Sprintf("%v", e.connectionPooled)).Observe(responseTime)
 
 	// Read response body
-	_, err = io.Copy(io.Discard, resp.Body)
-	if err != nil {
+	bytesIn, readErr := io.Copy(io.Discard, resp.Body)
+	if readErr != nil {
 		AgentErrorsTotal.WithLabelValues(e.targetProtocol, e.useCaseID, "response_read", fmt.Sprintf("%v", e.connectionPooled)).Inc()
 	}
 
@@ -210,6 +220,9 @@ func (e *HTTPExecutor) Execute(ctx context.Context) error {
 	} else {
 		AgentErrorsTotal.WithLabelValues(e.targetProtocol, e.useCaseID, fmt.Sprintf("http_%d", resp.StatusCode), fmt.Sprintf("%v", e.connectionPooled)).Inc()
 	}
+
+	outcome, code := classifyHTTPOutcome(resp.StatusCode)
+	e.metrics.RecordRequest(outcome, code, duration*1000, bytesIn, int64(len(payload)))
 
 	return nil
 }

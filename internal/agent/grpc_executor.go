@@ -24,10 +24,11 @@ type GRPCExecutor struct {
 	useCaseID        string
 	testExecutionID  string
 	sni              string
+	metrics          *TestMetrics
 }
 
 // NewGRPCExecutor creates a new gRPC executor
-func NewGRPCExecutor(targetAddress, targetProtocol string, connectionPooled bool, useCaseID, testExecutionID, sni string) (*GRPCExecutor, error) {
+func NewGRPCExecutor(targetAddress, targetProtocol string, connectionPooled bool, useCaseID, testExecutionID, sni string, metrics *TestMetrics) (*GRPCExecutor, error) {
 	// Configure connection options
 	var opts []grpc.DialOption
 
@@ -79,6 +80,7 @@ func NewGRPCExecutor(targetAddress, targetProtocol string, connectionPooled bool
 		useCaseID:        useCaseID,
 		testExecutionID:  testExecutionID,
 		sni:              sni,
+		metrics:          metrics,
 	}, nil
 }
 
@@ -90,6 +92,10 @@ func (e *GRPCExecutor) Execute(ctx context.Context) error {
 	if !e.connectionPooled {
 		if err := e.reconnect(); err != nil {
 			AgentErrorsTotal.WithLabelValues(e.targetProtocol, e.useCaseID, "connection_failed", fmt.Sprintf("%v", e.connectionPooled)).Inc()
+			if ctx.Err() == nil {
+				outcome, code := classifyRequestError(err)
+				e.metrics.RecordRequest(outcome, code, time.Since(start).Seconds()*1000, 0, 0)
+			}
 			return fmt.Errorf("failed to reconnect: %w", err)
 		}
 		defer e.conn.Close()
@@ -144,6 +150,14 @@ func (e *GRPCExecutor) Execute(ctx context.Context) error {
 		AgentErrorsTotal.WithLabelValues(e.targetProtocol, e.useCaseID, "request_failed", fmt.Sprintf("%v", e.connectionPooled)).Inc()
 		AgentRequestDuration.WithLabelValues(e.targetProtocol, e.useCaseID, method, "error", fmt.Sprintf("%v", e.connectionPooled)).Observe(duration)
 		AgentRequestsTotal.WithLabelValues(e.targetProtocol, e.useCaseID, method, "error", fmt.Sprintf("%v", e.connectionPooled)).Inc()
+
+		// A cancelled context means the test is stopping; that is an expected
+		// shutdown, not a target failure, so it must not skew the error demux.
+		if ctx.Err() == nil {
+			outcome, code := classifyGRPCError(err)
+			e.metrics.RecordRequest(outcome, code, duration*1000, 0, 0)
+		}
+
 		return fmt.Errorf("request failed: %w", err)
 	}
 
@@ -151,6 +165,8 @@ func (e *GRPCExecutor) Execute(ctx context.Context) error {
 	AgentProcessingTime.WithLabelValues(e.targetProtocol, e.useCaseID, fmt.Sprintf("%v", e.connectionPooled)).Observe(duration)
 	AgentRequestsTotal.WithLabelValues(e.targetProtocol, e.useCaseID, method, "OK", fmt.Sprintf("%v", e.connectionPooled)).Inc()
 	AgentSuccessTotal.WithLabelValues(e.targetProtocol, e.useCaseID, fmt.Sprintf("%v", e.connectionPooled)).Inc()
+
+	e.metrics.RecordRequest(outcomeSuccess, "", duration*1000, 0, 0)
 
 	return nil
 }

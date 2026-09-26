@@ -166,6 +166,23 @@ cd web && flutter run -d chrome --dart-define=CHAOS_MASTER_URL=http://localhost:
 
 See [web/README.md](web/README.md) for details.
 
+### Test metrics drilldown
+
+Every agent reports cumulative per-execution metrics to the master over the same
+`ConnectAgent` gRPC stream it already uses for heartbeats and command responses.
+The master aggregates them in memory and the panel polls `GetTestMetrics` every
+3 seconds, so `/tests/metrics/<execution-id>` (reachable by clicking an execution
+id on the **Tests** screen) works without Prometheus or Grafana.
+
+Each report carries client-observed throughput, a cumulative latency histogram,
+the failure demux (4xx/5xx/timeouts/resets plus per-status codes) and worker
+runtime telemetry (CPU, memory, scrape count). The drilldown renders the request
+rate and status demux, the round-trip latency envelope against an SLA ceiling, a
+Prometheus scraper-health panel, and a per-agent worker table.
+
+Metrics are held in memory only: a running execution plus the last 10 finished
+runs stay queryable, and everything is lost if the master restarts.
+
 ## Monitoring
 
 Prometheus and Grafana run inside the cluster and come up with everything else:
@@ -183,6 +200,10 @@ Override the local ports with `PROMETHEUS_PORT` / `GRAFANA_PORT` if they are
 taken. Prometheus scrapes the target variants and every agent pod using the same
 job names and labels as before, so the provisioned dashboards keep working. See
 [monitoring/README.md](monitoring/README.md) for details.
+
+Prometheus is optional for the in-panel telemetry: the **Tests → metrics**
+drilldown reads the metrics agents push over gRPC, so it keeps working in
+deployments that run without the monitoring stack.
 
 ## Configuration
 

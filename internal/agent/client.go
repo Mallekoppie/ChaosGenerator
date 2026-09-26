@@ -20,7 +20,15 @@ const (
 	// timeout so a couple of dropped beats are tolerated before the master
 	// declares the connection dead.
 	heartbeatInterval = 10 * time.Second
+	// metricsReportInterval is how often the agent pushes cumulative test
+	// metrics for its active executions to the master. The UI polls every 3s,
+	// so this gives a smooth series without flooding the stream.
+	metricsReportInterval = 1 * time.Second
 )
+
+// agentProcessSampler is shared by every reconnect so CPU deltas keep a tight
+// measurement window instead of resetting with each new Client.
+var agentProcessSampler = NewProcessSampler()
 
 // Client represents an agent client that connects to the master
 type Client struct {
@@ -72,6 +80,10 @@ func (c *Client) ConnectAndServe(ctx context.Context) error {
 	defer cancelHeartbeats()
 	go c.sendHeartbeats(heartbeatCtx, stream)
 
+	metricsCtx, cancelMetrics := context.WithCancel(ctx)
+	defer cancelMetrics()
+	go c.sendMetricsReports(metricsCtx, stream)
+
 	return c.receiveCommands(ctx, stream)
 }
 
@@ -113,6 +125,61 @@ func (c *Client) sendHeartbeats(ctx context.Context, stream pb.ChaosMaster_Conne
 				_ = stream.CloseSend()
 				return
 			}
+		}
+	}
+}
+
+// sendMetricsReports pushes cumulative metrics for every active test execution
+// until ctx is cancelled. It is a no-op while no test is running so an idle
+// agent adds no traffic beyond its heartbeats.
+func (c *Client) sendMetricsReports(ctx context.Context, stream pb.ChaosMaster_ConnectAgentClient) {
+	ticker := time.NewTicker(metricsReportInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// Sample every tick so the CPU percentage always covers a wall-clock
+			// window of roughly metricsReportInterval, even across gaps.
+			cpuPercent, memoryBytes := agentProcessSampler.Sample()
+			c.reportMetrics(stream, cpuPercent, memoryBytes)
+		}
+	}
+}
+
+// reportMetrics sends one cumulative report per active execution, enriched with
+// process-wide telemetry that is not per-execution (CPU, memory, scrape count).
+func (c *Client) reportMetrics(stream pb.ChaosMaster_ConnectAgentClient, cpuPercent float64, memoryBytes int64) {
+	snapshots := GetTestExecutionManager().SnapshotReports()
+	if len(snapshots) == 0 {
+		return
+	}
+
+	scrapes, _ := MetricsScrapeStats()
+
+	for _, snapshot := range snapshots {
+		report := snapshot.Report
+		report.TestExecutionId = snapshot.TestExecutionID
+		report.CpuPercent = cpuPercent
+		report.MemoryBytes = memoryBytes
+		report.MetricsScrapes = scrapes
+
+		msg := &pb.AgentMessage{
+			AgentId: c.agentId,
+			Payload: &pb.AgentMessage_MetricsReport{
+				MetricsReport: report,
+			},
+		}
+
+		if err := c.send(stream, msg); err != nil {
+			log.Printf("Error sending metrics report, dropping connection: %v", err)
+
+			// Half-close so the master stops waiting and the receive loop
+			// unblocks; the runner then reconnects.
+			_ = stream.CloseSend()
+			return
 		}
 	}
 }

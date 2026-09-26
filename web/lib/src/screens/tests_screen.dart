@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../data/repo.dart';
 import '../theme.dart';
@@ -249,10 +250,18 @@ class _TestsScreenState extends State<TestsScreen> {
               color: AetherDataTable.rowHighlight,
               cells: [
                 DataCell(
-                  TelemetryText(
-                    execution.testExecutionId,
-                    size: 12.5,
-                    color: AetherPalette.cyanBright,
+                  Tooltip(
+                    message: 'Open metrics drilldown',
+                    child: InkWell(
+                      onTap: () => context.go(
+                        '/tests/metrics/${execution.testExecutionId}',
+                      ),
+                      child: TelemetryText(
+                        execution.testExecutionId,
+                        size: 12.5,
+                        color: AetherPalette.cyanBright,
+                      ),
+                    ),
                   ),
                 ),
                 DataCell(

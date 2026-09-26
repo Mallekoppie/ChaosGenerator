@@ -403,11 +403,17 @@ func (s *ChaosMasterServer) StartTestExecution(ctx context.Context, req *contrac
 		UseCaseName:            getUseCaseName(req.UseCaseId),
 		TargetId:               target.ID,
 		TargetName:             target.Name,
+		TargetAddress:          target.Address,
+		TargetProtocol:         target.Protocol,
 		SimulatedUsersPerAgent: req.SimulatedUsersPerAgent,
 		AgentIds:               startedAgents,
 		StartTime:              time.Now(),
 	}
 	tracker.AddTest(runningTest)
+
+	// Register the execution with the metrics store so the drilldown can render
+	// its metadata before the first agent report arrives.
+	GetTestMetricsStore().EnsureExecution(runningTest)
 
 	return &contracts.StartTestExecutionResponse{
 		TestExecutionId: testExecutionId,
@@ -471,6 +477,9 @@ func (s *ChaosMasterServer) StopTestExecution(ctx context.Context, req *contract
 	// Remove test from tracker
 	tracker.RemoveTest(req.TestExecutionId)
 
+	// Keep the collected metrics queryable for the drilldown after the run ends.
+	GetTestMetricsStore().MarkStopped(req.TestExecutionId)
+
 	return &contracts.StopTestExecutionResponse{
 		Success: true,
 		Message: fmt.Sprintf("Stop command sent to %d agent(s)", successCount),
@@ -494,6 +503,26 @@ func (s *ChaosMasterServer) GetRunningTests(ctx context.Context, req *contracts.
 	return &contracts.GetRunningTestsResponse{
 		Tests: pbTests,
 	}, nil
+}
+
+// GetTestMetrics returns the agent-perspective telemetry for one test execution.
+func (s *ChaosMasterServer) GetTestMetrics(ctx context.Context, req *contracts.GetTestMetricsRequest) (*contracts.GetTestMetricsResponse, error) {
+	platform.Log.Info("Received GetTestMetrics request", zap.String("testExecutionId", req.TestExecutionId))
+
+	if req.TestExecutionId == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "test execution ID is required")
+	}
+
+	response, found := GetTestMetricsStore().BuildResponse(req.TestExecutionId)
+	if !found {
+		return &contracts.GetTestMetricsResponse{
+			Found:   false,
+			Message: "No metrics available for this test execution",
+		}, nil
+	}
+
+	response.Found = true
+	return response, nil
 }
 
 // Helper functions

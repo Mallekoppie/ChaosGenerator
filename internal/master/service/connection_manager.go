@@ -406,6 +406,15 @@ func handleAgentMessage(agentId string, msg *pb.AgentMessage, cm *ConnectionMana
 				zap.String("error", payload.Response.Error))
 		}
 
+	case *pb.AgentMessage_MetricsReport:
+		if payload.MetricsReport == nil {
+			return
+		}
+
+		// Telemetry ingest is intentionally quiet: it arrives about once a
+		// second per running test and would otherwise dominate the logs.
+		GetTestMetricsStore().Ingest(agentId, payload.MetricsReport)
+
 	default:
 		platform.Log.Warn("Unknown message type from agent", zap.String("agentId", agentId))
 	}
