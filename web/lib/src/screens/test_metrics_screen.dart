@@ -145,6 +145,8 @@ class _TestMetricsScreenState extends State<TestMetricsScreen> {
         'serverErrors': summary.serverErrors.toInt(),
         'timeouts': summary.timeouts.toInt(),
         'connectionResets': summary.connectionResets.toInt(),
+        'connectionErrors': summary.connectionErrors.toInt(),
+        'silentAgents': summary.silentAgents,
         'errorsByCode': summary.errorsByCode.map(
           (key, value) => MapEntry(key, value.toInt()),
         ),
@@ -166,6 +168,7 @@ class _TestMetricsScreenState extends State<TestMetricsScreen> {
             'serverErrors': sample.serverErrors.toInt(),
             'timeouts': sample.timeouts.toInt(),
             'resets': sample.resets.toInt(),
+            'connectionErrors': sample.connectionErrors.toInt(),
             'errorRate': sample.errorRate,
           },
       ],
@@ -180,6 +183,8 @@ class _TestMetricsScreenState extends State<TestMetricsScreen> {
             'cpuPercent': worker.cpuPercent,
             'memoryBytes': worker.memoryBytes.toInt(),
             'metricsScrapes': worker.metricsScrapes.toInt(),
+            'connectionErrors': worker.connectionErrors.toInt(),
+            'stale': worker.stale,
             'lastUpdateMs': worker.lastUpdateMs.toInt(),
             'errorRate': worker.errorRate,
           },
@@ -314,15 +319,19 @@ class _TestMetricsScreenState extends State<TestMetricsScreen> {
               ? AetherPalette.emeraldBright
               : AetherPalette.crimson,
           hint:
-              '5xx ${summary.serverErrors} · 4xx ${summary.clientErrors} · timeouts ${summary.timeouts}',
+              '5xx ${summary.serverErrors} · 4xx ${summary.clientErrors} · conn ${summary.connectionErrors} · timeouts ${summary.timeouts}',
         ),
         KpiCard(
           label: 'Distributed node fleet',
           value: '${summary.connectedAgents}/${summary.numberOfAgents}',
           unit: 'online',
           icon: Icons.dns,
-          accent: AetherPalette.emeraldBright,
-          hint: '${summary.activeUsers} virtual users',
+          accent: summary.silentAgents > 0
+              ? AetherPalette.amber
+              : AetherPalette.emeraldBright,
+          hint: summary.silentAgents > 0
+              ? '${summary.activeUsers} virtual users · ${summary.silentAgents} silent'
+              : '${summary.activeUsers} virtual users',
         ),
       ],
     );
@@ -349,6 +358,14 @@ class _TestMetricsScreenState extends State<TestMetricsScreen> {
         label: 'Timeouts',
         color: AetherPalette.cyanBright,
         points: _spots(samples, (sample) => sample.timeouts.toDouble()),
+      ),
+      AetherSeries(
+        label: 'Conn errs',
+        color: AetherPalette.cyanGlow,
+        points: _spots(
+          samples,
+          (sample) => (sample.connectionErrors + sample.resets).toDouble(),
+        ),
       ),
     ];
 
@@ -475,6 +492,7 @@ class _TestMetricsScreenState extends State<TestMetricsScreen> {
                 DataColumn(label: Text('Status')),
                 DataColumn(label: Text('V-users')),
                 DataColumn(label: Text('Egress RPS')),
+                DataColumn(label: Text('Errors')),
                 DataColumn(label: Text('Observed p99')),
                 DataColumn(label: Text('Node CPU')),
                 DataColumn(label: Text('Node memory')),
@@ -495,6 +513,7 @@ class _TestMetricsScreenState extends State<TestMetricsScreen> {
                       DataCell(_workerStatus(worker)),
                       DataCell(TelemetryText('${worker.activeUsers}')),
                       DataCell(TelemetryText(_formatRate(worker.egressRps))),
+                      DataCell(_workerErrors(worker)),
                       DataCell(
                         TelemetryText('${_formatMs(worker.observedP99Ms)} ms'),
                       ),
@@ -511,22 +530,53 @@ class _TestMetricsScreenState extends State<TestMetricsScreen> {
   }
 
   Widget _workerStatus(TestMetricsWorker worker) {
-    final label = worker.online ? 'online' : 'offline';
+    // "stale" is the important middle state: the agent is still connected but has
+    // stopped reporting, so its displayed rate is zero rather than its last value.
+    final String label;
+    final Color color;
+
+    if (worker.stale) {
+      label = 'stale';
+      color = AetherPalette.amber;
+    } else if (worker.online) {
+      label = 'online';
+      color = AetherPalette.emeraldBright;
+    } else {
+      label = 'offline';
+      color = AetherPalette.textMuted;
+    }
 
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        StatusDot(
-          color: worker.online
-              ? AetherPalette.emeraldBright
-              : AetherPalette.textMuted,
-          size: 7,
-        ),
+        StatusDot(color: color, size: 7),
         const SizedBox(width: 8),
-        Text(
-          label,
-          style: TextStyle(color: statusColor(label), fontSize: 12.5),
+        Text(label, style: TextStyle(color: color, fontSize: 12.5)),
+      ],
+    );
+  }
+
+  Widget _workerErrors(TestMetricsWorker worker) {
+    final connectionErrors = worker.connectionErrors.toInt();
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        TelemetryText(
+          _formatPercent(worker.errorRate),
+          size: 12,
+          color: worker.errorRate > 0
+              ? AetherPalette.crimson
+              : AetherPalette.emeraldBright,
         ),
+        if (connectionErrors > 0) ...[
+          const SizedBox(width: 8),
+          TelemetryText(
+            '($connectionErrors conn)',
+            size: 11,
+            color: AetherPalette.amber,
+          ),
+        ],
       ],
     );
   }

@@ -175,10 +175,25 @@ The master aggregates them in memory and the panel polls `GetTestMetrics` every
 id on the **Tests** screen) works without Prometheus or Grafana.
 
 Each report carries client-observed throughput, a cumulative latency histogram,
-the failure demux (4xx/5xx/timeouts/resets plus per-status codes) and worker
-runtime telemetry (CPU, memory, scrape count). The drilldown renders the request
-rate and status demux, the round-trip latency envelope against an SLA ceiling, a
-Prometheus scraper-health panel, and a per-agent worker table.
+the failure demux (4xx/5xx/timeouts/connection errors/resets plus per-status and
+per-gRPC codes) and worker runtime telemetry (CPU, memory, scrape count). The
+drilldown renders the request rate and status demux, the round-trip latency
+envelope against an SLA ceiling, a Prometheus scraper-health panel, and a
+per-agent worker table.
+
+Failure classification is deliberately transport-aware:
+
+- an HTTP response is only a success when the status is 2xx **and** the body was
+  read to completion, so a restarted peer that truncates a response mid-body is
+  reported as a failure rather than a clean success;
+- refused, unreachable, premature-EOF and broken-pool connections are reported as
+  connection errors; resets and broken pipes are reported as resets; neither is
+  folded into the 4xx/5xx buckets;
+- agents report one snapshot per second. If an agent stops reporting, its derived
+  egress rate decays to zero after 5 seconds and it is flagged `stale` in the
+  worker table and counted in `silentAgents`, while its cumulative counters stay
+  intact. A silent agent therefore never keeps looking like it is generating
+  load.
 
 Metrics are held in memory only: a running execution plus the last 10 finished
 runs stay queryable, and everything is lost if the master restarts.

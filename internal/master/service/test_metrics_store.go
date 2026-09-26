@@ -20,6 +20,11 @@ const (
 	// metricsMaxFinishedRuns is how many completed executions keep their metrics
 	// available for the drilldown before the oldest is evicted.
 	metricsMaxFinishedRuns = 10
+	// agentMetricsStaleAfter is how long a per-agent snapshot may go without an
+	// update before its derived rate is treated as zero. Agents report every
+	// second, so this tolerates a few missed reports while still decaying a dead
+	// agent's egress to zero instead of freezing it at its last value forever.
+	agentMetricsStaleAfter = 5 * time.Second
 )
 
 // TestMetricsStore aggregates the cumulative metrics reports agents push over
@@ -56,16 +61,23 @@ type agentMetricsState struct {
 	errorRate  float64
 }
 
+// isFresh reports whether this agent reported recently enough for its derived
+// rate to be considered live.
+func (s *agentMetricsState) isFresh(now time.Time) bool {
+	return s.report != nil && !s.lastUpdate.IsZero() && now.Sub(s.lastUpdate) <= agentMetricsStaleAfter
+}
+
 // fleetTotals is the fleet-wide sum of the latest per-agent cumulative counters.
 type fleetTotals struct {
-	total   int64
-	success int64
-	client  int64
-	server  int64
-	timeout int64
-	reset   int64
-	other   int64
-	at      time.Time
+	total         int64
+	success       int64
+	client        int64
+	server        int64
+	timeout       int64
+	reset         int64
+	connectionErr int64
+	other         int64
+	at            time.Time
 }
 
 type testMetricsRecord struct {
@@ -249,8 +261,11 @@ func (r *testMetricsRecord) appendSample(now time.Time) {
 		sample.ServerErrors = max(totals.server-r.lastTotals.server, 0)
 		sample.Timeouts = max(totals.timeout-r.lastTotals.timeout, 0)
 		sample.Resets = max(totals.reset-r.lastTotals.reset, 0)
+		sample.ConnectionErrors = max(totals.connectionErr-r.lastTotals.connectionErr, 0)
 
-		interval := sample.Ok + sample.ClientErrors + sample.ServerErrors + sample.Timeouts + sample.Resets
+		other := max(totals.other-r.lastTotals.other, 0)
+		interval := sample.Ok + sample.ClientErrors + sample.ServerErrors + sample.Timeouts +
+			sample.Resets + sample.ConnectionErrors + other
 		if interval > 0 {
 			failures := interval - sample.Ok
 			sample.ErrorRate = float64(failures) / float64(interval)
@@ -287,6 +302,7 @@ func (r *testMetricsRecord) fleetTotalsLocked() fleetTotals {
 		totals.server += report.ServerErrors
 		totals.timeout += report.Timeouts
 		totals.reset += report.ConnectionResets
+		totals.connectionErr += report.ConnectionErrors
 		totals.other += report.OtherErrors
 	}
 
@@ -415,9 +431,26 @@ func (r *testMetricsRecord) summaryLocked(connMgr *ConnectionManager) *contracts
 		Running:                r.Running,
 	}
 
-	var totalRequests, totalErrors int64
+	// connectedAgents counts the agents that are both expected for this run and
+	// still holding a live stream to the master.
+	for _, agentId := range r.AgentIds {
+		if connMgr != nil && connMgr.IsAgentConnected(agentId) {
+			summary.ConnectedAgents++
+		}
+	}
+
+	now := time.Now()
+
 	for _, state := range r.agents {
 		if state.report == nil {
+			continue
+		}
+
+		// A rate from an agent that stopped reporting is not a live rate: it has
+		// to decay to zero instead of freezing at its last value, otherwise a
+		// dead agent looks like it is still generating load forever.
+		if !state.isFresh(now) {
+			summary.SilentAgents++
 			continue
 		}
 
@@ -426,35 +459,25 @@ func (r *testMetricsRecord) summaryLocked(connMgr *ConnectionManager) *contracts
 	}
 
 	totals := r.fleetTotalsLocked()
-	totalRequests = totals.total
-	totalErrors = totals.total - totals.success
-	if totalRequests > 0 {
-		summary.ErrorRate = float64(totalErrors) / float64(totalRequests)
+	summary.TotalRequests = totals.total
+	summary.TotalErrors = totals.total - totals.success
+	if totals.total > 0 {
+		summary.ErrorRate = float64(summary.TotalErrors) / float64(totals.total)
 	}
-
-	summary.TotalRequests = totalRequests
-	summary.TotalErrors = totalErrors
 
 	summary.SuccessRequests = totals.success
 	summary.ClientErrors = totals.client
 	summary.ServerErrors = totals.server
 	summary.Timeouts = totals.timeout
 	summary.ConnectionResets = totals.reset
+	summary.ConnectionErrors = totals.connectionErr
 	summary.ErrorsByCode = r.mergedErrorsByCodeLocked()
 
-	if summary.ActiveUsers == 0 {
-		summary.ActiveUsers = int64(r.SimulatedUsersPerAgent) * int64(len(r.AgentIds))
+	if summary.ActiveUsers == 0 && r.Running && summary.ConnectedAgents > 0 {
+		summary.ActiveUsers = int64(r.SimulatedUsersPerAgent) * int64(summary.ConnectedAgents)
 	}
 
 	summary.P50Ms, summary.P90Ms, summary.P95Ms, summary.P99Ms = quantilesFromHistogram(r.fleetCumulativeHistogramLocked())
-
-	// connectedAgents counts the agents that are both expected for this run and
-	// still holding a live stream to the master.
-	for _, agentId := range r.AgentIds {
-		if connMgr != nil && connMgr.IsAgentConnected(agentId) {
-			summary.ConnectedAgents++
-		}
-	}
 
 	return summary
 }
@@ -506,6 +529,8 @@ func (r *testMetricsRecord) workersLocked(connMgr *ConnectionManager) []*contrac
 	ordered = append(ordered, extra...)
 
 	workers := make([]*contracts.TestMetricsWorker, 0, len(ordered))
+	now := time.Now()
+
 	for _, agentId := range ordered {
 		worker := &contracts.TestMetricsWorker{
 			AgentId: agentId,
@@ -514,14 +539,22 @@ func (r *testMetricsRecord) workersLocked(connMgr *ConnectionManager) []*contrac
 
 		if state, ok := r.agents[agentId]; ok && state.report != nil {
 			report := state.report
+
 			worker.ActiveUsers = report.ActiveUsers
-			worker.EgressRps = state.egressRps
 			worker.ErrorRate = state.errorRate
 			worker.CpuPercent = report.CpuPercent
 			worker.MemoryBytes = report.MemoryBytes
 			worker.MetricsScrapes = report.MetricsScrapes
 			worker.LastUpdateMs = state.lastUpdate.UnixMilli()
 			worker.ObservedP99Ms = quantile(report.Latency, 0.99)
+			worker.ConnectionErrors = report.ConnectionErrors
+
+			// A silent agent keeps its cumulative counters but must not report a
+			// live rate, so the table agrees with the fleet KPI envelope.
+			worker.Stale = !state.isFresh(now)
+			if !worker.Stale {
+				worker.EgressRps = state.egressRps
+			}
 		}
 
 		workers = append(workers, worker)

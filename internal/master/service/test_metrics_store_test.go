@@ -93,6 +93,7 @@ func TestStoreSummaryAggregatesAgents(t *testing.T) {
 		ClientErrors:     1,
 		Timeouts:         1,
 		ConnectionResets: 2,
+		ConnectionErrors: 4,
 		ActiveUsers:      10,
 		ErrorsByCode:     map[string]int64{"502": 2, "504": 1},
 		Latency:          &pb.LatencyHistogram{BoundsMs: []float64{100, 200}, Counts: []int64{10, 10, 100}, Total: 100},
@@ -127,6 +128,9 @@ func TestStoreSummaryAggregatesAgents(t *testing.T) {
 	}
 	if summary.Timeouts != 1 || summary.ConnectionResets != 2 {
 		t.Errorf("timeouts/resets = %d/%d, want 1/2", summary.Timeouts, summary.ConnectionResets)
+	}
+	if summary.ConnectionErrors != 4 {
+		t.Errorf("ConnectionErrors = %d, want 4", summary.ConnectionErrors)
 	}
 	if summary.TotalErrors != 5 {
 		t.Errorf("TotalErrors = %d, want 5", summary.TotalErrors)
@@ -174,11 +178,13 @@ func TestStoreIntervalSampleUsesDeltas(t *testing.T) {
 	record.lastTotals.at = time.Now().Add(-2 * time.Second)
 	store.mu.Unlock()
 
-	store.Ingest("agent-a", testReport("test-1", 20, 20, &pb.LatencyHistogram{
+	second := testReport("test-1", 20, 20, &pb.LatencyHistogram{
 		BoundsMs: []float64{100, 200, 300},
 		Counts:   []int64{10, 10, 20, 20},
 		Total:    20,
-	}))
+	})
+	second.ConnectionErrors = 3
+	store.Ingest("agent-a", second)
 
 	response, found := store.BuildResponse("test-1")
 	if !found {
@@ -195,6 +201,9 @@ func TestStoreIntervalSampleUsesDeltas(t *testing.T) {
 	}
 	if math.Abs(last.EgressRps-5) > 0.001 {
 		t.Errorf("sample EgressRps = %v, want 5", last.EgressRps)
+	}
+	if last.ConnectionErrors != 3 {
+		t.Errorf("sample ConnectionErrors = %d, want 3", last.ConnectionErrors)
 	}
 	// The interval histogram delta is {0, 0, 10, 10}, so latency has shifted
 	// into the (200, 300] bucket and p50/p99 are interpolated inside it.
@@ -217,6 +226,57 @@ func TestStoreCreatesRecordForUnknownExecution(t *testing.T) {
 	}
 	if response.Summary.TotalRequests != 5 {
 		t.Errorf("TotalRequests = %d, want 5", response.Summary.TotalRequests)
+	}
+}
+
+func TestStoreStaleAgentRateDecays(t *testing.T) {
+	store := newTestStore()
+
+	store.EnsureExecution(&RunningTest{
+		TestExecutionId:        "test-1",
+		SimulatedUsersPerAgent: 5,
+		AgentIds:               []string{"agent-a"},
+		StartTime:              time.Now(),
+	})
+
+	store.Ingest("agent-a", testReport("test-1", 100, 100, nil))
+
+	// Make the agent look like it was producing 42 req/s but stopped reporting.
+	store.mu.Lock()
+	state := store.tests["test-1"].agents["agent-a"]
+	state.egressRps = 42
+	state.lastUpdate = time.Now().Add(-2 * agentMetricsStaleAfter)
+	store.mu.Unlock()
+
+	response, found := store.BuildResponse("test-1")
+	if !found {
+		t.Fatal("BuildResponse did not find the execution")
+	}
+
+	// A dead agent's last known rate must not keep looking live.
+	if response.Summary.EgressRps != 0 {
+		t.Errorf("stale fleet EgressRps = %v, want 0", response.Summary.EgressRps)
+	}
+	if response.Summary.SilentAgents != 1 {
+		t.Errorf("SilentAgents = %d, want 1", response.Summary.SilentAgents)
+	}
+	if response.Summary.ActiveUsers != 0 {
+		t.Errorf("stale ActiveUsers = %d, want 0", response.Summary.ActiveUsers)
+	}
+	// Cumulative counters must survive: only rates decay.
+	if response.Summary.TotalRequests != 100 {
+		t.Errorf("TotalRequests = %d, want 100", response.Summary.TotalRequests)
+	}
+
+	if len(response.Workers) != 1 {
+		t.Fatalf("len(Workers) = %d, want 1", len(response.Workers))
+	}
+	worker := response.Workers[0]
+	if !worker.Stale {
+		t.Error("worker should be flagged stale")
+	}
+	if worker.EgressRps != 0 {
+		t.Errorf("stale worker EgressRps = %v, want 0", worker.EgressRps)
 	}
 }
 

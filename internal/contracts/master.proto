@@ -12,16 +12,16 @@ service ChaosMaster {
     rpc UpdateAgent(UpdateAgentRequest) returns (UpdateAgentResponse) {}
     rpc DeleteAgent(DeleteAgentRequest) returns (DeleteAgentResponse) {}
     rpc ClearAllAgents(ClearAllAgentsRequest) returns (ClearAllAgentsResponse) {}
-    
+
     // Target operations
     rpc RegisterTarget(RegisterTargetRequest) returns (RegisterTargetResponse) {}
     rpc UpdateTarget(UpdateTargetRequest) returns (UpdateTargetResponse) {}
     rpc DeleteTarget(DeleteTargetRequest) returns (DeleteTargetResponse) {}
     rpc GetAllTargets(GetAllTargetsRequest) returns (GetAllTargetsResponse) {}
-    
+
     // Use case operations
     rpc GetUseCases(GetUseCasesRequest) returns (GetUseCasesResponse) {}
-    
+
     // Test execution operations
     rpc StartTestExecution(StartTestExecutionRequest) returns (StartTestExecutionResponse) {}
     rpc StopTestExecution(StopTestExecutionRequest) returns (StopTestExecutionResponse) {}
@@ -269,6 +269,9 @@ message TestMetricsReport {
     int64 connectionResets = 15;
     int64 otherErrors = 16;
     map<string, int64> errorsByCode = 17;
+    // Connection-level failures that are not resets: refused, unreachable,
+    // premature EOF and broken pool connections.
+    int64 connectionErrors = 18;
 
     // Cumulative payload volume.
     int64 bytesIn = 20;
@@ -320,6 +323,9 @@ message TestMetricsSummary {
     int64 timeouts = 25;
     int64 connectionResets = 26;
     map<string, int64> errorsByCode = 27; // e.g. "502", "504", "Unavailable"
+    int64 connectionErrors = 28;
+    // Agents expected for this run that have stopped reporting.
+    int32 silentAgents = 29;
 }
 
 // One point on the fleet time-series. Outcome counters are deltas observed over
@@ -337,6 +343,7 @@ message TestMetricsSample {
     int64 timeouts = 10;
     int64 resets = 11;
     double errorRate = 12;
+    int64 connectionErrors = 13;
 }
 
 // Per-agent runtime row for the worker fleet table.
@@ -351,6 +358,10 @@ message TestMetricsWorker {
     double errorRate = 8;
     int64 metricsScrapes = 9;
     int64 lastUpdateMs = 10;
+    int64 connectionErrors = 11;
+    // True when this agent is expected but has not reported recently; its
+    // derived egress rate is treated as zero.
+    bool stale = 12;
 }
 
 message GetTestMetricsResponse {

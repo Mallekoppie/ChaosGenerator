@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"os"
 	"strconv"
@@ -25,12 +26,13 @@ var latencyBucketsMs = []float64{5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000,
 
 // Outcome classes for a completed request.
 const (
-	outcomeSuccess = "success"
-	outcomeClient  = "client_error"
-	outcomeServer  = "server_error"
-	outcomeTimeout = "timeout"
-	outcomeReset   = "connection_reset"
-	outcomeOther   = "other_error"
+	outcomeSuccess    = "success"
+	outcomeClient     = "client_error"
+	outcomeServer     = "server_error"
+	outcomeTimeout    = "timeout"
+	outcomeReset      = "connection_reset"
+	outcomeConnection = "connection_error"
+	outcomeOther      = "other_error"
 )
 
 // TestMetrics accumulates client-side telemetry for a single test execution.
@@ -47,6 +49,7 @@ type TestMetrics struct {
 	serverErrors int64
 	timeouts     int64
 	resets       int64
+	connErrors   int64
 	otherErrors  int64
 	errorsByCode map[string]int64
 
@@ -94,6 +97,8 @@ func (m *TestMetrics) RecordRequest(outcome, code string, durationMs float64, in
 		m.timeouts++
 	case outcomeReset:
 		m.resets++
+	case outcomeConnection:
+		m.connErrors++
 	default:
 		m.otherErrors++
 	}
@@ -140,6 +145,7 @@ func (m *TestMetrics) Snapshot() *pb.TestMetricsReport {
 		Timeouts:         m.timeouts,
 		ConnectionResets: m.resets,
 		OtherErrors:      m.otherErrors,
+		ConnectionErrors: m.connErrors,
 		ErrorsByCode:     errorsByCode,
 		BytesIn:          m.bytesIn,
 		BytesOut:         m.bytesOut,
@@ -186,6 +192,7 @@ func classifyRequestError(err error) (outcome, code string) {
 		return outcomeSuccess, ""
 	}
 
+	// Timeouts are their own class: the connection may be healthy but too slow.
 	if errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err) {
 		return outcomeTimeout, "timeout"
 	}
@@ -195,19 +202,64 @@ func classifyRequestError(err error) (outcome, code string) {
 		return outcomeTimeout, "timeout"
 	}
 
-	if errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE) {
-		return outcomeReset, "econnreset"
-	}
-
 	if errors.Is(err, context.Canceled) {
 		return outcomeOther, "canceled"
 	}
 
-	if strings.Contains(strings.ToLower(err.Error()), "connection reset") {
+	if errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE) {
 		return outcomeReset, "econnreset"
 	}
 
+	switch {
+	case errors.Is(err, syscall.ECONNREFUSED):
+		return outcomeConnection, "econnrefused"
+	case errors.Is(err, syscall.EHOSTUNREACH):
+		return outcomeConnection, "ehostunreach"
+	case errors.Is(err, syscall.ENETUNREACH):
+		return outcomeConnection, "enetunreach"
+	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
+		return outcomeConnection, "eof"
+	case errors.Is(err, net.ErrClosed):
+		return outcomeConnection, "closed"
+	}
+
+	if outcome, code := classifyConnectionMessage(err.Error()); outcome != "" {
+		return outcome, code
+	}
+
 	return outcomeOther, "transport"
+}
+
+// classifyConnectionMessage inspects a transport error message for a
+// connection-level failure. Go's HTTP and gRPC stacks wrap lower-level errors in
+// plain strings on several code paths, so matching the message catches failures
+// the sentinel checks miss. It returns empty strings when the message does not
+// describe a connection-level failure.
+func classifyConnectionMessage(message string) (outcome, code string) {
+	lower := strings.ToLower(message)
+
+	switch {
+	case strings.Contains(lower, "connection reset"),
+		strings.Contains(lower, "broken pipe"),
+		strings.Contains(lower, "reset by peer"):
+		return outcomeReset, "econnreset"
+	case strings.Contains(lower, "connection refused"):
+		return outcomeConnection, "econnrefused"
+	case strings.Contains(lower, "no route to host"):
+		return outcomeConnection, "ehostunreach"
+	case strings.Contains(lower, "network is unreachable"):
+		return outcomeConnection, "enetunreach"
+	case strings.Contains(lower, "server closed idle connection"),
+		strings.Contains(lower, "goaway"),
+		strings.Contains(lower, "transport is closing"),
+		strings.Contains(lower, "error while dialing"),
+		strings.Contains(lower, "connection closed"):
+		return outcomeConnection, "closed"
+	case strings.Contains(lower, "eof"):
+		return outcomeConnection, "eof"
+	}
+
+	return "", ""
 }
 
 // classifyGRPCError maps a gRPC status onto an outcome class and a stable demux
@@ -240,10 +292,15 @@ func classifyGRPCError(err error) (outcome, code string) {
 		return outcomeClient, st.Code().String()
 	case codes.DeadlineExceeded:
 		return outcomeTimeout, st.Code().String()
-	case codes.Unavailable, codes.Internal, codes.Unknown, codes.DataLoss, codes.ResourceExhausted, codes.Aborted:
-		if strings.Contains(strings.ToLower(st.Message()), "connection reset") {
-			return outcomeReset, "econnreset"
+	case codes.Unavailable:
+		// A failure to reach the target (refused, unreachable, reset, closing) is
+		// a transport problem rather than an error response, so keep it out of
+		// the server-error bucket.
+		if outcome, code := classifyConnectionMessage(st.Message()); outcome != "" {
+			return outcome, code
 		}
+		return outcomeServer, st.Code().String()
+	case codes.Internal, codes.Unknown, codes.DataLoss, codes.ResourceExhausted, codes.Aborted:
 		return outcomeServer, st.Code().String()
 	default:
 		return outcomeOther, st.Code().String()

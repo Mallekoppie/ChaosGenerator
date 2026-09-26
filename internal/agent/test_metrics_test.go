@@ -3,10 +3,14 @@ package agent
 import (
 	"context"
 	"errors"
+	"io"
 	"math"
 	"syscall"
 	"testing"
 	"time"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestBucketIndex(t *testing.T) {
@@ -63,7 +67,16 @@ func TestClassifyRequestError(t *testing.T) {
 		{"nil", nil, outcomeSuccess},
 		{"deadline", context.DeadlineExceeded, outcomeTimeout},
 		{"reset", syscall.ECONNRESET, outcomeReset},
+		{"broken pipe", syscall.EPIPE, outcomeReset},
+		{"refused", syscall.ECONNREFUSED, outcomeConnection},
+		{"unreachable", syscall.ENETUNREACH, outcomeConnection},
+		{"unexpected eof", io.ErrUnexpectedEOF, outcomeConnection},
 		{"canceled", context.Canceled, outcomeOther},
+		// Go's HTTP stack frequently returns these as plain strings rather than
+		// wrapped sentinels.
+		{"dial refused", errors.New("dial tcp 10.0.0.1:80: connect: connection refused"), outcomeConnection},
+		{"read reset", errors.New("read tcp: connection reset by peer"), outcomeReset},
+		{"goaway", errors.New("http2: server sent GOAWAY and closed the connection"), outcomeConnection},
 		{"generic", errors.New("boom"), outcomeOther},
 	}
 
@@ -74,6 +87,54 @@ func TestClassifyRequestError(t *testing.T) {
 				t.Fatalf("outcome = %q, want %q", outcome, tc.outcome)
 			}
 		})
+	}
+}
+
+func TestClassifyGRPCError(t *testing.T) {
+	cases := []struct {
+		name    string
+		err     error
+		outcome string
+	}{
+		{"ok", nil, outcomeSuccess},
+		{"bad request", status.Error(codes.InvalidArgument, "bad request"), outcomeClient},
+		{"deadline", status.Error(codes.DeadlineExceeded, "too slow"), outcomeTimeout},
+		{"overloaded", status.Error(codes.Unavailable, "upstream overloaded"), outcomeServer},
+		{"refused", status.Error(codes.Unavailable, "connection refused"), outcomeConnection},
+		{"closing", status.Error(codes.Unavailable, "transport is closing"), outcomeConnection},
+		{"internal", status.Error(codes.Internal, "boom"), outcomeServer},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			outcome, _ := classifyGRPCError(tc.err)
+			if outcome != tc.outcome {
+				t.Fatalf("outcome = %q, want %q", outcome, tc.outcome)
+			}
+		})
+	}
+}
+
+func TestTestMetricsRecordsConnectionErrors(t *testing.T) {
+	metrics := newTestMetrics(1)
+
+	metrics.RecordRequest(outcomeConnection, "econnrefused", 3, 0, 0)
+	metrics.RecordRequest(outcomeConnection, "eof", 3, 0, 0)
+	metrics.RecordRequest(outcomeSuccess, "", 3, 0, 0)
+
+	report := metrics.Snapshot()
+
+	if report.ConnectionErrors != 2 {
+		t.Errorf("ConnectionErrors = %d, want 2", report.ConnectionErrors)
+	}
+	if report.SuccessRequests != 1 {
+		t.Errorf("SuccessRequests = %d, want 1", report.SuccessRequests)
+	}
+	if report.OtherErrors != 0 {
+		t.Errorf("OtherErrors = %d, want 0", report.OtherErrors)
+	}
+	if report.ErrorsByCode["econnrefused"] != 1 || report.ErrorsByCode["eof"] != 1 {
+		t.Errorf("connection error demux not recorded: %v", report.ErrorsByCode)
 	}
 }
 
