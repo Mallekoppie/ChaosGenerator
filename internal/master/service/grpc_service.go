@@ -525,6 +525,16 @@ func (s *ChaosMasterServer) GetTestMetrics(ctx context.Context, req *contracts.G
 	return response, nil
 }
 
+// GetTestHistory returns the most recently finished test executions so the UI
+// can reopen a run whose live export was missed.
+func (s *ChaosMasterServer) GetTestHistory(ctx context.Context, req *contracts.GetTestHistoryRequest) (*contracts.GetTestHistoryResponse, error) {
+	platform.Log.Info("Received GetTestHistory request", zap.Int32("limit", req.Limit))
+
+	runs := GetTestMetricsStore().History(int(req.Limit))
+
+	return &contracts.GetTestHistoryResponse{Runs: runs}, nil
+}
+
 // Helper functions
 
 func parseAgentSelection(selection string) []string {

@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../data/download.dart';
 import '../data/repo.dart';
+import '../data/test_report.dart';
+import '../generated/generated.dart';
 import '../theme.dart';
 import '../widgets/aether_chrome.dart';
 import '../widgets/aether_common.dart';
@@ -10,12 +13,16 @@ import '../widgets/aether_table.dart';
 
 class TestsScreen extends StatefulWidget {
   final ExecutionsRepository executions;
+  final HistoryRepository history;
+  final TestMetricsRepository metrics;
   final TargetsRepository targets;
   final UseCasesRepository useCases;
   final AgentsRepository agents;
 
   const TestsScreen({
     required this.executions,
+    required this.history,
+    required this.metrics,
     required this.targets,
     required this.useCases,
     required this.agents,
@@ -43,11 +50,14 @@ class _TestsScreenState extends State<TestsScreen> {
     widget.agents.load();
     widget.executions.load();
     widget.executions.startPolling();
+    widget.history.load();
+    widget.history.startPolling();
   }
 
   @override
   void dispose() {
     widget.executions.stopPolling();
+    widget.history.stopPolling();
     _usersController.dispose();
     _agentsController.dispose();
     super.dispose();
@@ -95,6 +105,33 @@ class _TestsScreenState extends State<TestsScreen> {
     if (error != null) {
       _showMessage(error);
     }
+    // A stopped run moves from the live table into the history panel.
+    await widget.history.load();
+  }
+
+  Future<void> _refresh() async {
+    await Future.wait([
+      widget.executions.load(),
+      widget.history.load(),
+    ]);
+  }
+
+  /// Fetches the full metrics for one history row and downloads the Markdown
+  /// documentation report. The run no longer needs to be live to be exported.
+  Future<void> _exportRun(TestRunSummary run) async {
+    _showMessage('Preparing report for ${run.testExecutionId}...');
+
+    try {
+      final response = await widget.metrics.fetch(run.testExecutionId);
+      downloadText(
+        testReportFileName(run.testExecutionId),
+        buildTestReportMarkdown(response),
+        mimeType: 'text/markdown;charset=utf-8',
+      );
+      _showMessage('Report exported');
+    } catch (e) {
+      _showMessage('Failed to export report: $e');
+    }
   }
 
   @override
@@ -108,7 +145,7 @@ class _TestsScreenState extends State<TestsScreen> {
           IconButton(
             tooltip: 'Refresh',
             icon: const Icon(Icons.refresh),
-            onPressed: widget.executions.load,
+            onPressed: _refresh,
           ),
         ],
       ),
@@ -131,6 +168,7 @@ class _TestsScreenState extends State<TestsScreen> {
             ),
             const SizedBox(height: 16),
             Expanded(
+              flex: 3,
               child: ListenableBuilder(
                 listenable: widget.executions,
                 builder: (context, _) => AetherPanel(
@@ -142,6 +180,23 @@ class _TestsScreenState extends State<TestsScreen> {
                     color: AetherPalette.emeraldBright,
                   ),
                   child: _buildRunning(),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Expanded(
+              flex: 2,
+              child: ListenableBuilder(
+                listenable: widget.history,
+                builder: (context, _) => AetherPanel(
+                  title: 'Recent runs',
+                  fill: true,
+                  padding: EdgeInsets.zero,
+                  trailing: const StatusPill(
+                    label: 'Auto-refresh: 5s',
+                    color: AetherPalette.emeraldBright,
+                  ),
+                  child: _buildHistory(),
                 ),
               ),
             ),
@@ -293,6 +348,91 @@ class _TestsScreenState extends State<TestsScreen> {
                   TextButton(
                     onPressed: () => _stop(execution.testExecutionId),
                     child: const Text('Stop'),
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHistory() {
+    final repository = widget.history;
+
+    if (repository.runs.isEmpty) {
+      return ConsoleMessage(
+        repository.loading
+            ? 'Loading previous runs...'
+            : 'No previous test runs',
+        icon: Icons.history,
+      );
+    }
+
+    return SingleChildScrollView(
+      child: AetherDataTable(
+        columns: const [
+          DataColumn(label: Text('Execution')),
+          DataColumn(label: Text('Use case')),
+          DataColumn(label: Text('Agents')),
+          DataColumn(label: Text('Requests')),
+          DataColumn(label: Text('Errors')),
+          DataColumn(label: Text('Started')),
+          DataColumn(label: Text('Ended')),
+          DataColumn(label: Text('Duration')),
+          DataColumn(label: Text('')),
+        ],
+        rows: [
+          for (final run in repository.runs)
+            DataRow(
+              cells: [
+                DataCell(
+                  Tooltip(
+                    message: 'Open metrics drilldown',
+                    child: InkWell(
+                      onTap: () => context.go(
+                        '/tests/metrics/${run.testExecutionId}',
+                      ),
+                      child: TelemetryText(
+                        run.testExecutionId,
+                        size: 12.5,
+                        color: AetherPalette.cyanBright,
+                      ),
+                    ),
+                  ),
+                ),
+                DataCell(
+                  Text(
+                    run.useCaseName.isEmpty ? run.useCaseId : run.useCaseName,
+                  ),
+                ),
+                DataCell(TelemetryText('${run.numberOfAgents}')),
+                DataCell(TelemetryText('${run.totalRequests.toInt()}')),
+                DataCell(TelemetryText('${run.totalErrors.toInt()}')),
+                DataCell(
+                  TelemetryText(
+                    formatLocalTimestamp(run.startTime.toInt()),
+                    size: 12.5,
+                    color: AetherPalette.textMuted,
+                  ),
+                ),
+                DataCell(
+                  TelemetryText(
+                    formatLocalTimestamp(run.endTime.toInt()),
+                    size: 12.5,
+                    color: AetherPalette.textMuted,
+                  ),
+                ),
+                DataCell(
+                  TelemetryText(formatDurationMs(run.durationMs.toInt())),
+                ),
+                DataCell(
+                  Tooltip(
+                    message: 'Export documentation report',
+                    child: IconButton(
+                      icon: const Icon(Icons.download, size: 18),
+                      onPressed: () => _exportRun(run),
+                    ),
                   ),
                 ),
               ],

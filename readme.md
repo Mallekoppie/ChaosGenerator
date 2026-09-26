@@ -195,8 +195,27 @@ Failure classification is deliberately transport-aware:
   intact. A silent agent therefore never keeps looking like it is generating
   load.
 
-Metrics are held in memory only: a running execution plus the last 10 finished
-runs stay queryable, and everything is lost if the master restarts.
+Metrics are aggregated in memory, and every finished run is also persisted to
+BoltDB so it survives a master restart. The master keeps the most recent
+`CHAOS_MASTER_HISTORY_LIMIT` (default `50`) finished runs; older runs are evicted
+from both memory and the database.
+
+### Test history and report export
+
+The **Tests** screen shows a **Recent runs** panel listing finished executions
+with their start/end times, duration and request totals. Click an execution id to
+reopen the drilldown for a past run, or use the download action on a row to
+export the run straight from history — useful when the live export was missed.
+
+Two exports are available from the drilldown (and the Markdown one from history):
+
+- **Export report** produces a formatted Markdown document intended for
+  documentation: a run overview (use case executed, test start/end time, test
+  duration, number of agents), fleet totals (throughput, latency percentiles,
+  failure demux and payload volume), failures by code, and a per-agent metrics
+  table with a totals row across every agent — including total requests per
+  agent.
+- **Export JSON** produces the raw, machine-readable metrics dump.
 
 ## Monitoring
 

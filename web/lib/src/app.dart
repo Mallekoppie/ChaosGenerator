@@ -33,6 +33,7 @@ class _ChaosProcessorAppState extends State<ChaosProcessorApp> {
   late final UseCasesRepository _useCasesRepository;
   late final ExecutionsRepository _executionsRepository;
   late final TestMetricsRepository _testMetricsRepository;
+  late final HistoryRepository _historyRepository;
   late final UsersRepository _usersRepository;
 
   @override
@@ -48,6 +49,7 @@ class _ChaosProcessorAppState extends State<ChaosProcessorApp> {
     _useCasesRepository = UseCasesRepository(backend: _backend);
     _executionsRepository = ExecutionsRepository(backend: _backend);
     _testMetricsRepository = TestMetricsRepository(backend: _backend);
+    _historyRepository = HistoryRepository(backend: _backend);
     _usersRepository = UsersRepository(backend: _backend);
   }
 
@@ -58,6 +60,7 @@ class _ChaosProcessorAppState extends State<ChaosProcessorApp> {
     _useCasesRepository.dispose();
     _executionsRepository.dispose();
     _testMetricsRepository.dispose();
+    _historyRepository.dispose();
     _usersRepository.dispose();
     _backend.shutdown();
     super.dispose();
@@ -131,6 +134,8 @@ class _ChaosProcessorAppState extends State<ChaosProcessorApp> {
                 path: '/tests',
                 builder: (context, state) => TestsScreen(
                   executions: _executionsRepository,
+                  history: _historyRepository,
+                  metrics: _testMetricsRepository,
                   targets: _targetsRepository,
                   useCases: _useCasesRepository,
                   agents: _agentsRepository,

@@ -384,11 +384,84 @@ class TestMetricsRepository extends ChangeNotifier {
     _timer = null;
   }
 
+  /// One-shot fetch that does not touch the shared drilldown state. Used when
+  /// exporting a run straight from the history list.
+  Future<GetTestMetricsResponse> fetch(String testExecutionId) async {
+    final result = await backend.master.getTestMetrics(
+      GetTestMetricsRequest(testExecutionId: testExecutionId),
+    );
+
+    if (!result.found) {
+      throw StateError(
+        result.message.isEmpty
+            ? 'No metrics available for this test execution'
+            : result.message,
+      );
+    }
+
+    return result;
+  }
+
   /// Clears the current response so a new drilldown does not render stale data.
   void reset() {
     response = null;
     error = null;
     loading = false;
+  }
+
+  @override
+  void dispose() {
+    stopPolling();
+    super.dispose();
+  }
+}
+
+/// Loads the recently finished test executions for the history panel.
+///
+/// Finished runs are retained by the master (in memory and on disk), so a run
+/// whose live export was missed can still be reopened and exported later.
+class HistoryRepository extends ChangeNotifier {
+  final Backend backend;
+
+  HistoryRepository({required this.backend});
+
+  List<TestRunSummary> runs = const [];
+  bool loading = false;
+  String? error;
+  Timer? _timer;
+
+  Future<void> load({int limit = 0}) async {
+    loading = true;
+    notifyListeners();
+
+    try {
+      final response = await backend.master.getTestHistory(
+        GetTestHistoryRequest(limit: limit),
+      );
+      runs = List<TestRunSummary>.from(response.runs);
+      error = null;
+    } on GrpcError catch (e) {
+      backend.handleError(e);
+      error = e.message ?? 'Failed to load test history';
+    } catch (e) {
+      error = 'Failed to load test history: $e';
+    } finally {
+      loading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Refreshes the history every [interval] until [stopPolling] is called.
+  void startPolling({
+    Duration interval = const Duration(seconds: 5),
+    int limit = 0,
+  }) {
+    _timer ??= Timer.periodic(interval, (_) => load(limit: limit));
+  }
+
+  void stopPolling() {
+    _timer?.cancel();
+    _timer = null;
   }
 
   @override

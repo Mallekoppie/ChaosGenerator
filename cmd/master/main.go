@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 
 	"mallekoppie/ChaosGenerator/internal/master/logic"
 	"mallekoppie/ChaosGenerator/internal/master/service"
@@ -55,6 +56,18 @@ func main() {
 	platform.SetPlatformConfiguration(config)
 
 	platform.SetupBoltDB()
+
+	// Restore the finished test runs left by a previous master process and keep
+	// persisting new ones so the history view survives restarts.
+	historyLimit := service.DefaultHistoryLimit
+	if raw := os.Getenv("CHAOS_MASTER_HISTORY_LIMIT"); raw != "" {
+		if parsed, convErr := strconv.Atoi(raw); convErr == nil && parsed > 0 {
+			historyLimit = parsed
+		} else {
+			platform.Log.Warn("Ignoring invalid CHAOS_MASTER_HISTORY_LIMIT", zap.String("value", raw))
+		}
+	}
+	service.GetTestMetricsStore().EnablePersistence(historyLimit)
 
 	// Agents re-register when they reconnect, so rows left behind by a previous
 	// master process are stale. Clear them at startup and start the heartbeat

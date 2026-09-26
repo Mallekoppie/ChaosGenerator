@@ -29,6 +29,9 @@ service ChaosMaster {
 
     // Test metrics operations
     rpc GetTestMetrics(GetTestMetricsRequest) returns (GetTestMetricsResponse) {}
+
+    // Test history operations
+    rpc GetTestHistory(GetTestHistoryRequest) returns (GetTestHistoryResponse) {}
 }
 
 // Agent messages
@@ -326,6 +329,14 @@ message TestMetricsSummary {
     int64 connectionErrors = 28;
     // Agents expected for this run that have stopped reporting.
     int32 silentAgents = 29;
+
+    // Run completion metadata. endTime is zero while the run is still going.
+    int64 endTime = 30;    // Unix timestamp
+    int64 durationMs = 31; // start -> end (or now) in milliseconds
+
+    // Cumulative payload volume across the fleet.
+    int64 bytesIn = 32;
+    int64 bytesOut = 33;
 }
 
 // One point on the fleet time-series. Outcome counters are deltas observed over
@@ -362,6 +373,23 @@ message TestMetricsWorker {
     // True when this agent is expected but has not reported recently; its
     // derived egress rate is treated as zero.
     bool stale = 12;
+
+    // Cumulative per-agent counters since the test started. These power the
+    // per-agent section and totals of the exported documentation report.
+    int64 totalRequests = 13;
+    int64 successRequests = 14;
+    int64 clientErrors = 15;
+    int64 serverErrors = 16;
+    int64 timeouts = 17;
+    int64 connectionResets = 18;
+    int64 otherErrors = 19;
+    map<string, int64> errorsByCode = 20;
+    int64 bytesIn = 21;
+    int64 bytesOut = 22;
+    double p50Ms = 23;
+    double p90Ms = 24;
+    double p95Ms = 25;
+    double avgLatencyMs = 26;
 }
 
 message GetTestMetricsResponse {
@@ -371,4 +399,38 @@ message GetTestMetricsResponse {
     repeated TestMetricsSample samples = 4;
     repeated TestMetricsWorker workers = 5;
     LatencyHistogram fleetLatency = 6;
+}
+
+// Test history messages (master -> UI list of past executions).
+
+message GetTestHistoryRequest {
+    // Maximum number of runs to return, newest first. Zero means the server
+    // default.
+    int32 limit = 1;
+}
+
+// TestRunSummary is a lightweight row describing one past (or running) test
+// execution. The full per-agent breakdown is fetched via GetTestMetrics.
+message TestRunSummary {
+    string testExecutionId = 1;
+    string useCaseId = 2;
+    string useCaseName = 3;
+    string targetId = 4;
+    string targetName = 5;
+    string targetAddress = 6;
+    string targetProtocol = 7;
+    int32 simulatedUsersPerAgent = 8;
+    int32 numberOfAgents = 9;
+    int64 startTime = 10; // Unix timestamp
+    int64 endTime = 11;   // Unix timestamp; 0 while running
+    int64 durationMs = 12;
+    bool running = 13;
+    int64 totalRequests = 14;
+    int64 totalErrors = 15;
+    double errorRate = 16; // 0..1
+    double egressRps = 17;
+}
+
+message GetTestHistoryResponse {
+    repeated TestRunSummary runs = 1;
 }

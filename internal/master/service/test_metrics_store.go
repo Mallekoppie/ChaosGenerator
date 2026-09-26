@@ -6,6 +6,11 @@ import (
 	"time"
 
 	"mallekoppie/ChaosGenerator/internal/contracts"
+	"mallekoppie/ChaosGenerator/internal/master/models"
+	"mallekoppie/ChaosGenerator/internal/master/repositories"
+
+	"github.com/Mallekoppie/goslow/platform"
+	"go.uber.org/zap"
 )
 
 const (
@@ -18,8 +23,12 @@ const (
 	// sample per second).
 	metricsMaxSamples = 300
 	// metricsMaxFinishedRuns is how many completed executions keep their metrics
-	// available for the drilldown before the oldest is evicted.
+	// available for the drilldown before the oldest is evicted when no explicit
+	// history limit has been configured.
 	metricsMaxFinishedRuns = 10
+	// DefaultHistoryLimit is how many finished runs are retained for the history
+	// view and drilldown once persistence is enabled.
+	DefaultHistoryLimit = 50
 	// agentMetricsStaleAfter is how long a per-agent snapshot may go without an
 	// update before its derived rate is treated as zero. Agents report every
 	// second, so this tolerates a few missed reports while still decaying a dead
@@ -33,6 +42,12 @@ const (
 type TestMetricsStore struct {
 	mu    sync.RWMutex
 	tests map[string]*testMetricsRecord
+	// historyLimit bounds how many finished runs are kept in memory and on disk.
+	// Zero means metricsMaxFinishedRuns.
+	historyLimit int
+	// persist enables writing finished runs to BoltDB. It stays off until the
+	// master calls EnablePersistence so unit tests never touch a database.
+	persist bool
 }
 
 var (
@@ -48,6 +63,52 @@ func GetTestMetricsStore() *TestMetricsStore {
 		}
 	})
 	return metricsStore
+}
+
+// SetHistoryLimit overrides how many finished runs are retained in memory (and
+// evicted from disk when persistence is on).
+func (s *TestMetricsStore) SetHistoryLimit(limit int) {
+	if limit <= 0 {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.historyLimit = limit
+	s.evictLocked()
+}
+
+// EnablePersistence turns on writing finished runs to BoltDB and rehydrates the
+// runs left behind by a previous master process. It must be called after the
+// database has been set up.
+func (s *TestMetricsStore) EnablePersistence(limit int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.persist = true
+	if limit > 0 {
+		s.historyLimit = limit
+	}
+
+	runs, err := repositories.GetAllTestRuns()
+	if err != nil {
+		platform.Log.Error("Unable to load persisted test history", zap.Error(err))
+		return
+	}
+
+	for i := range runs {
+		record := recordFromHistoryModel(runs[i])
+		if _, exists := s.tests[record.ExecutionId]; exists {
+			// A run that is live in this process wins over the persisted copy.
+			continue
+		}
+		s.tests[record.ExecutionId] = record
+	}
+
+	s.evictLocked()
+
+	platform.Log.Info("Loaded persisted test history", zap.Int("runs", len(runs)))
 }
 
 // agentMetricsState is the latest cumulative report from one agent plus the
@@ -77,6 +138,8 @@ type fleetTotals struct {
 	reset         int64
 	connectionErr int64
 	other         int64
+	bytesIn       int64
+	bytesOut      int64
 	at            time.Time
 }
 
@@ -155,11 +218,19 @@ func (s *TestMetricsStore) MarkStopped(executionId string) {
 	record.Running = false
 	record.finishedAt = time.Now()
 
+	if s.persist {
+		if err := repositories.SaveTestRun(record.toHistoryModel()); err != nil {
+			platform.Log.Error("Unable to persist finished test run",
+				zap.String("executionId", executionId), zap.Error(err))
+		}
+	}
+
 	s.evictLocked()
 }
 
-// evictLocked drops the oldest finished records beyond metricsMaxFinishedRuns.
-// Running executions are never evicted.
+// evictLocked drops the oldest finished records beyond the retention limit.
+// Running executions are never evicted. Evicted runs are also removed from the
+// persistent history so the database cannot grow without bound.
 func (s *TestMetricsStore) evictLocked() {
 	finished := make([]*testMetricsRecord, 0, len(s.tests))
 	for _, record := range s.tests {
@@ -168,7 +239,8 @@ func (s *TestMetricsStore) evictLocked() {
 		}
 	}
 
-	if len(finished) <= metricsMaxFinishedRuns {
+	limit := s.effectiveHistoryLimit()
+	if len(finished) <= limit {
 		return
 	}
 
@@ -176,9 +248,26 @@ func (s *TestMetricsStore) evictLocked() {
 		return finished[i].finishedAt.Before(finished[j].finishedAt)
 	})
 
-	for _, record := range finished[:len(finished)-metricsMaxFinishedRuns] {
+	for _, record := range finished[:len(finished)-limit] {
 		delete(s.tests, record.ExecutionId)
+
+		if s.persist {
+			if err := repositories.RemoveTestRun(record.ExecutionId); err != nil {
+				platform.Log.Error("Unable to evict persisted test run",
+					zap.String("executionId", record.ExecutionId), zap.Error(err))
+			}
+		}
 	}
+}
+
+// effectiveHistoryLimit returns the configured retention, defaulting to
+// metricsMaxFinishedRuns when unset.
+func (s *TestMetricsStore) effectiveHistoryLimit() int {
+	if s.historyLimit > 0 {
+		return s.historyLimit
+	}
+
+	return metricsMaxFinishedRuns
 }
 
 // Ingest merges one cumulative report from an agent into the store. Reports for
@@ -304,6 +393,8 @@ func (r *testMetricsRecord) fleetTotalsLocked() fleetTotals {
 		totals.reset += report.ConnectionResets
 		totals.connectionErr += report.ConnectionErrors
 		totals.other += report.OtherErrors
+		totals.bytesIn += report.BytesIn
+		totals.bytesOut += report.BytesOut
 	}
 
 	return totals
@@ -415,6 +506,83 @@ func (s *TestMetricsStore) BuildResponse(executionId string) (*contracts.GetTest
 	}, true
 }
 
+// History returns the most recently finished runs, newest first, capped at the
+// requested limit (zero uses the configured retention). Only finished runs are
+// returned; live ones are served by GetRunningTests.
+func (s *TestMetricsStore) History(limit int) []*contracts.TestRunSummary {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if limit <= 0 {
+		limit = s.effectiveHistoryLimit()
+	}
+
+	records := make([]*testMetricsRecord, 0, len(s.tests))
+	for _, record := range s.tests {
+		if record.Running {
+			continue
+		}
+		records = append(records, record)
+	}
+
+	sort.Slice(records, func(i, j int) bool {
+		return records[i].finishedAt.After(records[j].finishedAt)
+	})
+
+	if len(records) > limit {
+		records = records[:limit]
+	}
+
+	runs := make([]*contracts.TestRunSummary, 0, len(records))
+	for _, record := range records {
+		runs = append(runs, record.historySummaryLocked())
+	}
+
+	return runs
+}
+
+// numberOfAgentsLocked counts the agents expected for the run, falling back to
+// the agents that actually reported when the execution metadata is missing (for
+// example a record created by a report that arrived after a restart).
+func (r *testMetricsRecord) numberOfAgentsLocked() int32 {
+	if len(r.AgentIds) > 0 {
+		return int32(len(r.AgentIds))
+	}
+
+	return int32(len(r.agents))
+}
+
+// historySummaryLocked renders the lightweight history row for one run.
+func (r *testMetricsRecord) historySummaryLocked() *contracts.TestRunSummary {
+	summary := &contracts.TestRunSummary{
+		TestExecutionId:        r.ExecutionId,
+		UseCaseId:              r.UseCaseId,
+		UseCaseName:            r.UseCaseName,
+		TargetId:               r.TargetId,
+		TargetName:             r.TargetName,
+		TargetAddress:          r.TargetAddress,
+		TargetProtocol:         r.TargetProtocol,
+		SimulatedUsersPerAgent: r.SimulatedUsersPerAgent,
+		NumberOfAgents:         r.numberOfAgentsLocked(),
+		StartTime:              r.StartTime.Unix(),
+		Running:                r.Running,
+	}
+
+	if !r.finishedAt.IsZero() {
+		summary.EndTime = r.finishedAt.Unix()
+		summary.DurationMs = r.finishedAt.Sub(r.StartTime).Milliseconds()
+	}
+
+	totals := r.fleetTotalsLocked()
+	summary.TotalRequests = totals.total
+	summary.TotalErrors = totals.total - totals.success
+	if totals.total > 0 {
+		summary.ErrorRate = float64(summary.TotalErrors) / float64(totals.total)
+	}
+
+	return summary
+}
+
 // summaryLocked renders the fleet-level KPI envelope for the drilldown.
 func (r *testMetricsRecord) summaryLocked(connMgr *ConnectionManager) *contracts.TestMetricsSummary {
 	summary := &contracts.TestMetricsSummary{
@@ -426,9 +594,18 @@ func (r *testMetricsRecord) summaryLocked(connMgr *ConnectionManager) *contracts
 		TargetAddress:          r.TargetAddress,
 		TargetProtocol:         r.TargetProtocol,
 		SimulatedUsersPerAgent: r.SimulatedUsersPerAgent,
-		NumberOfAgents:         int32(len(r.AgentIds)),
+		NumberOfAgents:         r.numberOfAgentsLocked(),
 		StartTime:              r.StartTime.Unix(),
 		Running:                r.Running,
+	}
+
+	// A finished run keeps its end time and a frozen duration; a live run reports
+	// the elapsed time so far.
+	if !r.finishedAt.IsZero() {
+		summary.EndTime = r.finishedAt.Unix()
+		summary.DurationMs = r.finishedAt.Sub(r.StartTime).Milliseconds()
+	} else if !r.StartTime.IsZero() {
+		summary.DurationMs = time.Since(r.StartTime).Milliseconds()
 	}
 
 	// connectedAgents counts the agents that are both expected for this run and
@@ -443,6 +620,12 @@ func (r *testMetricsRecord) summaryLocked(connMgr *ConnectionManager) *contracts
 
 	for _, state := range r.agents {
 		if state.report == nil {
+			continue
+		}
+
+		// A finished run has no live rate or users to report; its cumulative
+		// counters are folded in below.
+		if !r.Running {
 			continue
 		}
 
@@ -472,6 +655,8 @@ func (r *testMetricsRecord) summaryLocked(connMgr *ConnectionManager) *contracts
 	summary.ConnectionResets = totals.reset
 	summary.ConnectionErrors = totals.connectionErr
 	summary.ErrorsByCode = r.mergedErrorsByCodeLocked()
+	summary.BytesIn = totals.bytesIn
+	summary.BytesOut = totals.bytesOut
 
 	if summary.ActiveUsers == 0 && r.Running && summary.ConnectedAgents > 0 {
 		summary.ActiveUsers = int64(r.SimulatedUsersPerAgent) * int64(summary.ConnectedAgents)
@@ -549,10 +734,28 @@ func (r *testMetricsRecord) workersLocked(connMgr *ConnectionManager) []*contrac
 			worker.ObservedP99Ms = quantile(report.Latency, 0.99)
 			worker.ConnectionErrors = report.ConnectionErrors
 
+			// Cumulative counters let the UI show per-agent request totals and
+			// rebuild the documentation report after a restart.
+			worker.TotalRequests = report.TotalRequests
+			worker.SuccessRequests = report.SuccessRequests
+			worker.ClientErrors = report.ClientErrors
+			worker.ServerErrors = report.ServerErrors
+			worker.Timeouts = report.Timeouts
+			worker.ConnectionResets = report.ConnectionResets
+			worker.OtherErrors = report.OtherErrors
+			worker.ErrorsByCode = report.ErrorsByCode
+			worker.BytesIn = report.BytesIn
+			worker.BytesOut = report.BytesOut
+			worker.P50Ms = quantile(report.Latency, 0.50)
+			worker.P90Ms = quantile(report.Latency, 0.90)
+			worker.P95Ms = quantile(report.Latency, 0.95)
+			worker.AvgLatencyMs = averageLatency(report.Latency)
+
 			// A silent agent keeps its cumulative counters but must not report a
-			// live rate, so the table agrees with the fleet KPI envelope.
-			worker.Stale = !state.isFresh(now)
-			if !worker.Stale {
+			// live rate, so the table agrees with the fleet KPI envelope. A finished
+			// run has no live rate to protect.
+			worker.Stale = r.Running && !state.isFresh(now)
+			if r.Running && !worker.Stale {
 				worker.EgressRps = state.egressRps
 			}
 		}
@@ -571,6 +774,16 @@ func quantilesFromHistogram(histogram *contracts.LatencyHistogram) (p50, p90, p9
 	}
 
 	return quantile(histogram, 0.50), quantile(histogram, 0.90), quantile(histogram, 0.95), quantile(histogram, 0.99)
+}
+
+// averageLatency returns the mean observed latency in milliseconds, or zero
+// when no observations exist.
+func averageLatency(histogram *contracts.LatencyHistogram) float64 {
+	if histogram == nil || histogram.Total <= 0 {
+		return 0
+	}
+
+	return histogram.SumMs / float64(histogram.Total)
 }
 
 // quantile interpolates a latency quantile from cumulative histogram buckets.
@@ -614,4 +827,179 @@ func quantile(histogram *contracts.LatencyHistogram, q float64) float64 {
 	}
 
 	return previousBound
+}
+
+// --- Persistence conversions -------------------------------------------------
+
+// toHistoryModel flattens a record into its persistable snapshot.
+func (r *testMetricsRecord) toHistoryModel() models.TestRunHistory {
+	history := models.TestRunHistory{
+		ExecutionId:            r.ExecutionId,
+		UseCaseId:              r.UseCaseId,
+		UseCaseName:            r.UseCaseName,
+		TargetId:               r.TargetId,
+		TargetName:             r.TargetName,
+		TargetAddress:          r.TargetAddress,
+		TargetProtocol:         r.TargetProtocol,
+		SimulatedUsersPerAgent: r.SimulatedUsersPerAgent,
+		AgentIds:               append([]string(nil), r.AgentIds...),
+		StartTime:              r.StartTime,
+		EndTime:                r.finishedAt,
+		Running:                r.Running,
+	}
+
+	// Persist agents in a stable order so the stored JSON is deterministic.
+	agentIds := make([]string, 0, len(r.agents))
+	for agentId := range r.agents {
+		agentIds = append(agentIds, agentId)
+	}
+	sort.Strings(agentIds)
+
+	for _, agentId := range agentIds {
+		state := r.agents[agentId]
+		if state.report == nil {
+			continue
+		}
+
+		history.Agents = append(history.Agents, agentSnapshotFromReport(agentId, state.report))
+	}
+
+	for _, sample := range r.samples {
+		if sample == nil {
+			continue
+		}
+
+		history.Samples = append(history.Samples, models.TestRunSample{
+			TimestampMs:      sample.TimestampMs,
+			EgressRps:        sample.EgressRps,
+			P50Ms:            sample.P50Ms,
+			P90Ms:            sample.P90Ms,
+			P95Ms:            sample.P95Ms,
+			P99Ms:            sample.P99Ms,
+			Ok:               sample.Ok,
+			ClientErrors:     sample.ClientErrors,
+			ServerErrors:     sample.ServerErrors,
+			Timeouts:         sample.Timeouts,
+			Resets:           sample.Resets,
+			ConnectionErrors: sample.ConnectionErrors,
+			ErrorRate:        sample.ErrorRate,
+		})
+	}
+
+	return history
+}
+
+// recordFromHistoryModel rebuilds an in-memory record from a persisted snapshot.
+// The reconstituted run is always finished: a running run that was interrupted
+// by a restart is replaced by fresh reports from the agents still connected.
+func recordFromHistoryModel(history models.TestRunHistory) *testMetricsRecord {
+	record := newTestMetricsRecord(history.ExecutionId)
+
+	record.UseCaseId = history.UseCaseId
+	record.UseCaseName = history.UseCaseName
+	record.TargetId = history.TargetId
+	record.TargetName = history.TargetName
+	record.TargetAddress = history.TargetAddress
+	record.TargetProtocol = history.TargetProtocol
+	record.SimulatedUsersPerAgent = history.SimulatedUsersPerAgent
+	record.AgentIds = append([]string(nil), history.AgentIds...)
+	record.StartTime = history.StartTime
+	record.finishedAt = history.EndTime
+	record.Running = false
+
+	record.agents = make(map[string]*agentMetricsState, len(history.Agents))
+	for _, agent := range history.Agents {
+		record.agents[agent.AgentId] = &agentMetricsState{
+			agentId:    agent.AgentId,
+			report:     agentSnapshotToReport(history.ExecutionId, agent),
+			lastUpdate: history.EndTime,
+		}
+	}
+
+	record.samples = make([]*contracts.TestMetricsSample, 0, len(history.Samples))
+	for _, sample := range history.Samples {
+		record.samples = append(record.samples, &contracts.TestMetricsSample{
+			TimestampMs:      sample.TimestampMs,
+			EgressRps:        sample.EgressRps,
+			P50Ms:            sample.P50Ms,
+			P90Ms:            sample.P90Ms,
+			P95Ms:            sample.P95Ms,
+			P99Ms:            sample.P99Ms,
+			Ok:               sample.Ok,
+			ClientErrors:     sample.ClientErrors,
+			ServerErrors:     sample.ServerErrors,
+			Timeouts:         sample.Timeouts,
+			Resets:           sample.Resets,
+			ConnectionErrors: sample.ConnectionErrors,
+			ErrorRate:        sample.ErrorRate,
+		})
+	}
+
+	return record
+}
+
+// agentSnapshotFromReport flattens one agent's cumulative report.
+func agentSnapshotFromReport(agentId string, report *contracts.TestMetricsReport) models.TestRunAgentSnapshot {
+	snapshot := models.TestRunAgentSnapshot{
+		AgentId:          agentId,
+		ActiveUsers:      report.ActiveUsers,
+		TotalRequests:    report.TotalRequests,
+		SuccessRequests:  report.SuccessRequests,
+		ClientErrors:     report.ClientErrors,
+		ServerErrors:     report.ServerErrors,
+		Timeouts:         report.Timeouts,
+		ConnectionResets: report.ConnectionResets,
+		OtherErrors:      report.OtherErrors,
+		ConnectionErrors: report.ConnectionErrors,
+		ErrorsByCode:     report.ErrorsByCode,
+		BytesIn:          report.BytesIn,
+		BytesOut:         report.BytesOut,
+		CpuPercent:       report.CpuPercent,
+		MemoryBytes:      report.MemoryBytes,
+		MetricsScrapes:   report.MetricsScrapes,
+	}
+
+	if report.Latency != nil {
+		snapshot.Latency = models.TestRunLatency{
+			BoundsMs: append([]float64(nil), report.Latency.BoundsMs...),
+			Counts:   append([]int64(nil), report.Latency.Counts...),
+			Total:    report.Latency.Total,
+			SumMs:    report.Latency.SumMs,
+		}
+	}
+
+	return snapshot
+}
+
+// agentSnapshotToReport rebuilds the cumulative report for one agent.
+func agentSnapshotToReport(executionId string, snapshot models.TestRunAgentSnapshot) *contracts.TestMetricsReport {
+	report := &contracts.TestMetricsReport{
+		TestExecutionId:  executionId,
+		ActiveUsers:      snapshot.ActiveUsers,
+		TotalRequests:    snapshot.TotalRequests,
+		SuccessRequests:  snapshot.SuccessRequests,
+		ClientErrors:     snapshot.ClientErrors,
+		ServerErrors:     snapshot.ServerErrors,
+		Timeouts:         snapshot.Timeouts,
+		ConnectionResets: snapshot.ConnectionResets,
+		OtherErrors:      snapshot.OtherErrors,
+		ConnectionErrors: snapshot.ConnectionErrors,
+		ErrorsByCode:     snapshot.ErrorsByCode,
+		BytesIn:          snapshot.BytesIn,
+		BytesOut:         snapshot.BytesOut,
+		CpuPercent:       snapshot.CpuPercent,
+		MemoryBytes:      snapshot.MemoryBytes,
+		MetricsScrapes:   snapshot.MetricsScrapes,
+	}
+
+	if len(snapshot.Latency.Counts) > 0 {
+		report.Latency = &contracts.LatencyHistogram{
+			BoundsMs: append([]float64(nil), snapshot.Latency.BoundsMs...),
+			Counts:   append([]int64(nil), snapshot.Latency.Counts...),
+			Total:    snapshot.Latency.Total,
+			SumMs:    snapshot.Latency.SumMs,
+		}
+	}
+
+	return report
 }

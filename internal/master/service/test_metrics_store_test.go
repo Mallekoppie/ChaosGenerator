@@ -316,3 +316,187 @@ func TestStoreRetentionKeepsRunningAndNewestFinished(t *testing.T) {
 		t.Error("oldest finished execution was not evicted")
 	}
 }
+
+func TestStoreWorkerReportsCumulativeMetrics(t *testing.T) {
+	store := newTestStore()
+
+	store.EnsureExecution(&RunningTest{
+		TestExecutionId: "test-1",
+		AgentIds:        []string{"agent-a"},
+		StartTime:       time.Now(),
+	})
+
+	store.Ingest("agent-a", &pb.TestMetricsReport{
+		TestExecutionId:  "test-1",
+		TotalRequests:    100,
+		SuccessRequests:  90,
+		ClientErrors:     4,
+		ServerErrors:     3,
+		Timeouts:         1,
+		ConnectionResets: 1,
+		OtherErrors:      1,
+		ConnectionErrors: 2,
+		BytesIn:          1000,
+		BytesOut:         2000,
+		Latency: &pb.LatencyHistogram{
+			BoundsMs: []float64{100, 200},
+			Counts:   []int64{0, 10, 100},
+			Total:    100,
+			SumMs:    5000,
+		},
+	})
+
+	response, found := store.BuildResponse("test-1")
+	if !found {
+		t.Fatal("BuildResponse did not find the execution")
+	}
+	if len(response.Workers) != 1 {
+		t.Fatalf("len(Workers) = %d, want 1", len(response.Workers))
+	}
+
+	worker := response.Workers[0]
+	if worker.TotalRequests != 100 || worker.SuccessRequests != 90 {
+		t.Errorf("worker requests = %d/%d, want 100/90", worker.TotalRequests, worker.SuccessRequests)
+	}
+	if worker.ClientErrors != 4 || worker.ServerErrors != 3 {
+		t.Errorf("worker client/server errors = %d/%d, want 4/3", worker.ClientErrors, worker.ServerErrors)
+	}
+	if worker.Timeouts != 1 || worker.ConnectionResets != 1 || worker.OtherErrors != 1 {
+		t.Errorf("worker timeouts/resets/other = %d/%d/%d, want 1/1/1",
+			worker.Timeouts, worker.ConnectionResets, worker.OtherErrors)
+	}
+	if worker.ConnectionErrors != 2 {
+		t.Errorf("worker connection errors = %d, want 2", worker.ConnectionErrors)
+	}
+	if worker.BytesIn != 1000 || worker.BytesOut != 2000 {
+		t.Errorf("worker bytes = %d/%d, want 1000/2000", worker.BytesIn, worker.BytesOut)
+	}
+	// 5000ms of latency across 100 observations averages 50ms.
+	if math.Abs(worker.AvgLatencyMs-50) > 0.001 {
+		t.Errorf("worker AvgLatencyMs = %v, want 50", worker.AvgLatencyMs)
+	}
+}
+
+func TestStoreSummaryEndTimeAndDuration(t *testing.T) {
+	store := newTestStore()
+
+	store.EnsureExecution(&RunningTest{
+		TestExecutionId: "test-1",
+		StartTime:       time.Now().Add(-2 * time.Second),
+	})
+	store.Ingest("agent-a", testReport("test-1", 10, 10, nil))
+
+	running, _ := store.BuildResponse("test-1")
+	if running.Summary.EndTime != 0 {
+		t.Errorf("running EndTime = %d, want 0", running.Summary.EndTime)
+	}
+	if running.Summary.DurationMs <= 0 {
+		t.Errorf("running DurationMs = %d, want > 0", running.Summary.DurationMs)
+	}
+
+	store.MarkStopped("test-1")
+
+	stopped, _ := store.BuildResponse("test-1")
+	if stopped.Summary.EndTime == 0 {
+		t.Error("stopped EndTime = 0, want the finish timestamp")
+	}
+	if stopped.Summary.DurationMs < 1900 {
+		t.Errorf("stopped DurationMs = %d, want >= 1900", stopped.Summary.DurationMs)
+	}
+}
+
+func TestStoreHistoryNewestFirstAndCapped(t *testing.T) {
+	store := newTestStore()
+
+	for i := 0; i < 5; i++ {
+		id := fmt.Sprintf("test-%d", i)
+		store.EnsureExecution(&RunningTest{TestExecutionId: id, StartTime: time.Now()})
+		store.Ingest("agent-a", testReport(id, int64(10*(i+1)), int64(10*(i+1)), nil))
+		store.MarkStopped(id)
+
+		// Space out the finish times so ordering is deterministic.
+		time.Sleep(time.Millisecond)
+	}
+
+	runs := store.History(3)
+	if len(runs) != 3 {
+		t.Fatalf("len(History(3)) = %d, want 3", len(runs))
+	}
+	if runs[0].TestExecutionId != "test-4" {
+		t.Errorf("newest run = %q, want test-4", runs[0].TestExecutionId)
+	}
+	if runs[2].TotalRequests != 30 {
+		t.Errorf("oldest returned run requests = %d, want 30", runs[2].TotalRequests)
+	}
+
+	// A zero limit falls back to the configured retention.
+	if got := len(store.History(0)); got != 5 {
+		t.Errorf("len(History(0)) = %d, want 5", got)
+	}
+}
+
+func TestRecordRoundTripsThroughHistoryModel(t *testing.T) {
+	store := newTestStore()
+
+	store.EnsureExecution(&RunningTest{
+		TestExecutionId:        "test-1",
+		UseCaseId:              "uc7",
+		UseCaseName:            "Report Generation",
+		TargetId:               "target-1",
+		TargetName:             "Payments",
+		TargetAddress:          "https://payments.internal",
+		TargetProtocol:         "https",
+		SimulatedUsersPerAgent: 5,
+		AgentIds:               []string{"agent-a"},
+		StartTime:              time.Now().Add(-time.Second),
+	})
+	store.Ingest("agent-a", &pb.TestMetricsReport{
+		TestExecutionId: "test-1",
+		TotalRequests:   100,
+		SuccessRequests: 95,
+		ServerErrors:    5,
+		BytesIn:         111,
+		BytesOut:        222,
+		Latency:         &pb.LatencyHistogram{BoundsMs: []float64{100}, Counts: []int64{10, 90}, Total: 100, SumMs: 2000},
+	})
+	store.MarkStopped("test-1")
+
+	store.mu.RLock()
+	original := store.tests["test-1"]
+	model := original.toHistoryModel()
+	store.mu.RUnlock()
+
+	restored := recordFromHistoryModel(model)
+	if restored.ExecutionId != "test-1" {
+		t.Errorf("restored id = %q, want test-1", restored.ExecutionId)
+	}
+	if restored.Running {
+		t.Error("restored run should be finished")
+	}
+	if restored.finishedAt.IsZero() {
+		t.Error("restored run has no end time")
+	}
+	if len(restored.samples) != len(original.samples) {
+		t.Errorf("restored samples = %d, want %d", len(restored.samples), len(original.samples))
+	}
+
+	before := original.summaryLocked(nil)
+	after := restored.summaryLocked(nil)
+
+	if before.TotalRequests != after.TotalRequests || before.TotalErrors != after.TotalErrors {
+		t.Errorf("totals changed across round-trip: %d/%d -> %d/%d",
+			before.TotalRequests, before.TotalErrors, after.TotalRequests, after.TotalErrors)
+	}
+	if before.BytesIn != after.BytesIn || before.BytesOut != after.BytesOut {
+		t.Errorf("bytes changed across round-trip: %d/%d -> %d/%d",
+			before.BytesIn, before.BytesOut, after.BytesIn, after.BytesOut)
+	}
+	if before.EndTime != after.EndTime || before.DurationMs != after.DurationMs {
+		t.Errorf("end/duration changed across round-trip: %d/%d -> %d/%d",
+			before.EndTime, before.DurationMs, after.EndTime, after.DurationMs)
+	}
+	if before.NumberOfAgents != after.NumberOfAgents {
+		t.Errorf("agent count changed across round-trip: %d -> %d",
+			before.NumberOfAgents, after.NumberOfAgents)
+	}
+}

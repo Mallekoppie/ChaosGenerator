@@ -1,13 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:js_interop';
 import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
-import 'package:web/web.dart' as web;
 
+import '../data/download.dart';
 import '../data/repo.dart';
+import '../data/test_report.dart';
 import '../generated/generated.dart';
 import '../theme.dart';
 import '../widgets/aether_charts.dart';
@@ -117,7 +117,18 @@ class _TestMetricsScreenState extends State<TestMetricsScreen> {
     _showMessage(error ?? 'Abort dispatched');
   }
 
-  void _export(GetTestMetricsResponse response) {
+  /// Exports the formatted Markdown report intended for documentation.
+  void _exportReport(GetTestMetricsResponse response) {
+    downloadText(
+      testReportFileName(widget.executionId),
+      buildTestReportMarkdown(response),
+      mimeType: 'text/markdown;charset=utf-8',
+    );
+    _showMessage('Report exported');
+  }
+
+  /// Exports the raw, machine-readable metrics dump.
+  void _exportJson(GetTestMetricsResponse response) {
     final summary = response.summary;
 
     final payload = <String, Object?>{
@@ -192,8 +203,18 @@ class _TestMetricsScreenState extends State<TestMetricsScreen> {
     };
 
     final json = const JsonEncoder.withIndent('  ').convert(payload);
-    _downloadJson('${widget.executionId}-metrics.json', json);
+    downloadJson('${widget.executionId}-metrics.json', json);
     _showMessage('Metrics dump exported');
+  }
+
+  String _runDuration(TestMetricsSummary summary) {
+    // A finished run reports a frozen duration; a live run keeps ticking using
+    // the local clock so the display stays smooth between polls.
+    if (!summary.running && summary.durationMs.toInt() > 0) {
+      return formatDurationMs(summary.durationMs.toInt());
+    }
+
+    return _elapsed(summary);
   }
 
   String _elapsed(TestMetricsSummary summary) {
@@ -255,9 +276,10 @@ class _TestMetricsScreenState extends State<TestMetricsScreen> {
             children: [
               _ControlBar(
                 summary: summary,
-                elapsed: _elapsed(summary),
+                elapsed: _runDuration(summary),
                 aborting: _aborting,
-                onExport: () => _export(response),
+                onExportReport: () => _exportReport(response),
+                onExportJson: () => _exportJson(response),
                 onAbort: _abort,
               ),
               const SizedBox(height: 16),
@@ -663,14 +685,16 @@ class _ControlBar extends StatelessWidget {
     required this.summary,
     required this.elapsed,
     required this.aborting,
-    required this.onExport,
+    required this.onExportReport,
+    required this.onExportJson,
     required this.onAbort,
   });
 
   final TestMetricsSummary summary;
   final String elapsed;
   final bool aborting;
-  final VoidCallback onExport;
+  final VoidCallback onExportReport;
+  final VoidCallback onExportJson;
   final VoidCallback onAbort;
 
   @override
@@ -699,7 +723,17 @@ class _ControlBar extends StatelessWidget {
                 ? summary.useCaseId
                 : summary.useCaseName,
           ),
-          _Field(label: 'Elapsed', value: elapsed),
+          _Field(label: 'Start', value: formatLocalTimestamp(summary.startTime.toInt())),
+          _Field(
+            label: 'End',
+            value: summary.running
+                ? 'Still running'
+                : formatLocalTimestamp(summary.endTime.toInt()),
+          ),
+          _Field(
+            label: summary.running ? 'Elapsed' : 'Duration',
+            value: elapsed,
+          ),
           _Field(
             label: 'Protocol',
             value: summary.targetProtocol.toUpperCase(),
@@ -710,10 +744,15 @@ class _ControlBar extends StatelessWidget {
                 ? AetherPalette.emeraldBright
                 : AetherPalette.textMuted,
           ),
-          OutlinedButton.icon(
-            onPressed: onExport,
+          FilledButton.tonalIcon(
+            onPressed: onExportReport,
             icon: const Icon(Icons.download, size: 18),
-            label: const Text('Export dump'),
+            label: const Text('Export report'),
+          ),
+          OutlinedButton.icon(
+            onPressed: onExportJson,
+            icon: const Icon(Icons.data_object, size: 18),
+            label: const Text('Export JSON'),
           ),
           FilledButton.icon(
             onPressed: aborting ? null : onAbort,
@@ -948,20 +987,4 @@ String _formatBytes(int bytes) {
     return '${(value / 1024).toStringAsFixed(0)} KiB';
   }
   return '${value.toStringAsFixed(0)} B';
-}
-
-void _downloadJson(String filename, String contents) {
-  final bytes = utf8.encode(contents);
-  final blob = web.Blob(
-    [bytes.toJS].toJS,
-    web.BlobPropertyBag(type: 'application/json'),
-  );
-  final url = web.URL.createObjectURL(blob);
-
-  final anchor = web.HTMLAnchorElement()
-    ..href = url
-    ..download = filename;
-
-  anchor.click();
-  web.URL.revokeObjectURL(url);
 }
