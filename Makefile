@@ -293,18 +293,19 @@ generate-certs:
 	fi
 
 # --- Cluster secrets --------------------------------------------------------
+# kind-secrets depends on kind-namespace, so creating the secret never fails on a
+# missing namespace, whether it is reached through kind-deploy or on its own.
 .PHONY: kind-secrets
-kind-secrets: generate-certs
-	@$(KUBECTL) -n $(KIND_NAMESPACE) get namespace $(KIND_NAMESPACE) >/dev/null 2>&1 || { \
-		echo "namespace $(KIND_NAMESPACE) does not exist - run 'make kind-up' first."; exit 1; }
+kind-secrets: generate-certs kind-namespace
 	@$(KUBECTL) -n $(KIND_NAMESPACE) create secret tls target-tls \
 		--cert=$(CERT_DIR)/tls.crt --key=$(CERT_DIR)/tls.key \
 		--dry-run=client -o yaml | $(KUBECTL) -n $(KIND_NAMESPACE) apply -f -
 	@echo "Applied secret $(KIND_NAMESPACE)/target-tls"
 
 # --- Manifests --------------------------------------------------------------
-.PHONY: manifests kind-preflight kind-create kind-images kind-deploy kind-verify \
-        kind-up kind-status kind-logs kind-restart kind-down kind-delete kind-clean
+.PHONY: manifests kind-preflight kind-create kind-namespace kind-images kind-deploy \
+        kind-verify kind-up kind-status kind-logs kind-restart kind-down kind-delete \
+        kind-clean
 
 # Render manifests/kind into manifests/generated using the image names and tags
 # that `make docker-build` produces. Needs no cluster, so it also runs inside the
@@ -352,12 +353,21 @@ kind-preflight:
 		echo "$(CONTAINER_ENGINE) is not reachable - start it on the host (podman: systemctl --user start podman.socket)."; exit 1; }
 
 kind-create: kind-preflight
-	@if $(KIND) get clusters 2>/dev/null | grep -qx '$(KIND_CLUSTER)'; then \
-		echo "kind cluster '$(KIND_CLUSTER)' already exists."; \
+	@if $(KIND_ENV) $(KIND) get clusters 2>/dev/null | grep -qx '$(KIND_CLUSTER)'; then \
+		echo "kind cluster '$(KIND_CLUSTER)' already exists, reusing it."; \
 	else \
 		echo "Creating kind cluster '$(KIND_CLUSTER)' with $(CONTAINER_ENGINE)..."; \
 		$(KIND_ENV) $(KIND) create cluster --name $(KIND_CLUSTER); \
 	fi
+
+# The namespace must exist before the TLS secret is written. It is also part of
+# kind-all.yaml, but the ordered deploy applies kind-server.yaml (which has no
+# Namespace object) and creates the secret first, so create it up front. Applying
+# with --dry-run=client keeps this idempotent on an existing cluster.
+kind-namespace: kind-create
+	@$(KUBECTL) create namespace $(KIND_NAMESPACE) \
+		--dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null
+	@echo "Namespace $(KIND_NAMESPACE) is ready."
 
 # Build the images kind deploys and load them into the node, so the pods never
 # need a registry.
@@ -377,9 +387,10 @@ kind-images: kind-preflight
 	done
 	@echo "Images loaded into kind cluster '$(KIND_CLUSTER)'."
 
-# The master is applied first and allowed to become ready before the agents, so
-# the agents do not crash-loop against a master that is not listening yet.
-kind-deploy: manifests kind-create kind-secrets
+# The namespace is created first (idempotently), then the master is applied and
+# allowed to become ready before the agents, so the agents do not crash-loop
+# against a master that is not listening yet.
+kind-deploy: manifests kind-create kind-namespace kind-secrets
 	@echo "Deploying the master..."
 	@$(KUBECTL) apply -f $(GENERATED_DIR)/kind-server.yaml
 	@$(KUBECTL) -n $(KIND_NAMESPACE) rollout status deployment/chaos-master --timeout=180s
