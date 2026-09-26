@@ -63,9 +63,16 @@ class _AgentEditDialogState extends State<AgentEditDialog> {
               keyboardType: TextInputType.number,
             ),
             const SizedBox(height: 14),
+            // Status is reported by the agent itself, so it is shown
+            // read-only. Only host, ports and the enabled flag are
+            // operator-controlled.
             TextField(
               controller: _status,
-              decoration: const InputDecoration(labelText: 'Status'),
+              enabled: false,
+              decoration: const InputDecoration(
+                labelText: 'Status',
+                helperText: 'Reported by the agent',
+              ),
             ),
             const SizedBox(height: 6),
             SwitchListTile(
@@ -83,12 +90,13 @@ class _AgentEditDialogState extends State<AgentEditDialog> {
         ),
         FilledButton(
           onPressed: () {
+            // `status` is deliberately not assigned: it is reported by the
+            // agent, and deepCopy() already carries the current value.
             final updated = widget.agent.deepCopy()
               ..host = _host.text
               ..port = int.tryParse(_port.text) ?? widget.agent.port
               ..metricsPort =
                   int.tryParse(_metricsPort.text) ?? widget.agent.metricsPort
-              ..status = _status.text
               ..enabled = _enabled;
 
             Navigator.of(context).pop(updated);
