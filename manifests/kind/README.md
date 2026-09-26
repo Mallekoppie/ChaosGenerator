@@ -81,7 +81,7 @@ make kind-up KIND_CLUSTER=chaos2
 | Target under test (cluster DNS) | `http://target-http.chaos-testing.svc.cluster.local:8080` |
 | TLS target | `https://target-http-tls.chaos-testing.svc.cluster.local` (self-signed certificate) |
 | HTTP/2 target | `https://target-http2.chaos-testing.svc.cluster.local` |
-| gRPC target | `target-grpc.chaos-testing.svc.cluster.local:9000` |
+| gRPC target | `target-grpc.chaos-testing.svc.cluster.local:9000` (self-signed certificate) |
 | Registration secret | see below (`chaos-dev-secret` by default) |
 
 ```bash
@@ -90,7 +90,7 @@ kubectl -n chaos-testing get secret chaos-master-secrets \
 ```
 
 Use the in-cluster URLs when configuring a test in the panel - the agents resolve
-the service names through cluster DNS. The TLS and HTTP/2 targets serve the
+the service names through cluster DNS. The TLS, HTTP/2 and gRPC targets serve the
 self-signed certificate that `make generate-certs` creates and `make kind-secrets`
 applies as the `target-tls` Secret.
 

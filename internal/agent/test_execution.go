@@ -6,6 +6,8 @@ import (
 	"log"
 	"sync"
 	"time"
+
+	pb "mallekoppie/ChaosGenerator/internal/contracts"
 )
 
 // Executor interface for different protocol executors
@@ -28,6 +30,7 @@ type TestExecution struct {
 	wg               sync.WaitGroup
 	executor         Executor
 	grpcExecutor     *GRPCExecutor // Keep reference for cleanup
+	metrics          *TestMetrics
 }
 
 // TestExecutionManager manages active test executions
@@ -77,6 +80,7 @@ func (m *TestExecutionManager) StartTest(testExecutionID, useCaseID, targetAddre
 		SimulatedUsers:   simulatedUsers,
 		ctx:              ctx,
 		cancel:           cancel,
+		metrics:          newTestMetrics(simulatedUsers),
 	}
 
 	// Create executor based on protocol
@@ -89,6 +93,7 @@ func (m *TestExecutionManager) StartTest(testExecutionID, useCaseID, targetAddre
 			useCaseID,
 			testExecutionID,
 			sni,
+			execution.metrics,
 		)
 		if err != nil {
 			cancel()
@@ -109,6 +114,7 @@ func (m *TestExecutionManager) StartTest(testExecutionID, useCaseID, targetAddre
 			useCase.Path,
 			testExecutionID,
 			sni,
+			execution.metrics,
 		)
 
 		log.Printf("Created HTTP executor for target %s", targetAddress)
@@ -186,6 +192,34 @@ func (m *TestExecutionManager) GetActiveTests() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.executions)
+}
+
+// ExecutionMetricsSnapshot pairs a running execution with its cumulative report.
+type ExecutionMetricsSnapshot struct {
+	TestExecutionID string
+	Report          *pb.TestMetricsReport
+}
+
+// SnapshotReports returns a cumulative metrics report for every active test
+// execution. The caller enriches each report with process-wide telemetry (CPU,
+// memory and scrape count) before sending it to the master.
+func (m *TestExecutionManager) SnapshotReports() []ExecutionMetricsSnapshot {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	snapshots := make([]ExecutionMetricsSnapshot, 0, len(m.executions))
+	for id, execution := range m.executions {
+		if execution.metrics == nil {
+			continue
+		}
+
+		snapshots = append(snapshots, ExecutionMetricsSnapshot{
+			TestExecutionID: id,
+			Report:          execution.metrics.Snapshot(),
+		})
+	}
+
+	return snapshots
 }
 
 // runUser simulates a single user making requests in a loop

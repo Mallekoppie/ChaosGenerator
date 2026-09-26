@@ -166,6 +166,57 @@ cd web && flutter run -d chrome --dart-define=CHAOS_MASTER_URL=http://localhost:
 
 See [web/README.md](web/README.md) for details.
 
+### Test metrics drilldown
+
+Every agent reports cumulative per-execution metrics to the master over the same
+`ConnectAgent` gRPC stream it already uses for heartbeats and command responses.
+The master aggregates them in memory and the panel polls `GetTestMetrics` every
+3 seconds, so `/tests/metrics/<execution-id>` (reachable by clicking an execution
+id on the **Tests** screen) works without Prometheus or Grafana.
+
+Each report carries client-observed throughput, a cumulative latency histogram,
+the failure demux (4xx/5xx/timeouts/connection errors/resets plus per-status and
+per-gRPC codes) and worker runtime telemetry (CPU, memory, scrape count). The
+drilldown renders the request rate and status demux, the round-trip latency
+envelope against an SLA ceiling, a Prometheus scraper-health panel, and a
+per-agent worker table.
+
+Failure classification is deliberately transport-aware:
+
+- an HTTP response is only a success when the status is 2xx **and** the body was
+  read to completion, so a restarted peer that truncates a response mid-body is
+  reported as a failure rather than a clean success;
+- refused, unreachable, premature-EOF and broken-pool connections are reported as
+  connection errors; resets and broken pipes are reported as resets; neither is
+  folded into the 4xx/5xx buckets;
+- agents report one snapshot per second. If an agent stops reporting, its derived
+  egress rate decays to zero after 5 seconds and it is flagged `stale` in the
+  worker table and counted in `silentAgents`, while its cumulative counters stay
+  intact. A silent agent therefore never keeps looking like it is generating
+  load.
+
+Metrics are aggregated in memory, and every finished run is also persisted to
+BoltDB so it survives a master restart. The master keeps the most recent
+`CHAOS_MASTER_HISTORY_LIMIT` (default `50`) finished runs; older runs are evicted
+from both memory and the database.
+
+### Test history and report export
+
+The **Tests** screen shows a **Recent runs** panel listing finished executions
+with their start/end times, duration and request totals. Click an execution id to
+reopen the drilldown for a past run, or use the download action on a row to
+export the run straight from history — useful when the live export was missed.
+
+Two exports are available from the drilldown (and the Markdown one from history):
+
+- **Export report** produces a formatted Markdown document intended for
+  documentation: a run overview (use case executed, test start/end time, test
+  duration, number of agents), fleet totals (throughput, latency percentiles,
+  failure demux and payload volume), failures by code, and a per-agent metrics
+  table with a totals row across every agent — including total requests per
+  agent.
+- **Export JSON** produces the raw, machine-readable metrics dump.
+
 ## Monitoring
 
 Prometheus and Grafana run inside the cluster and come up with everything else:
@@ -183,6 +234,10 @@ Override the local ports with `PROMETHEUS_PORT` / `GRAFANA_PORT` if they are
 taken. Prometheus scrapes the target variants and every agent pod using the same
 job names and labels as before, so the provisioned dashboards keep working. See
 [monitoring/README.md](monitoring/README.md) for details.
+
+Prometheus is optional for the in-panel telemetry: the **Tests → metrics**
+drilldown reads the metrics agents push over gRPC, so it keeps working in
+deployments that run without the monitoring stack.
 
 ## Configuration
 
@@ -272,10 +327,24 @@ The system uses a client-server architecture where:
 ### Communication Flow
 
 1. Agent starts and registers with master (gets unique ID)
-2. Agent establishes bidirectional stream with master
+2. Agent establishes bidirectional stream with master and sends a heartbeat
+   immediately, so it appears online without waiting for the first periodic beat
 3. Agent sends periodic heartbeats to maintain connection
 4. Master sends commands down the stream (AddTests, StartTest, etc.)
 5. Agent executes commands and sends responses back
+
+### Agent Liveness
+
+The agent list is a live view of the connected agents:
+
+- An agent row is written on registration and removed when its stream ends, so
+  the UI only ever shows agents that are reachable. Starting a test fans out to
+  every connected agent (or the subset named in the agent selection).
+- The master reaps any connection that stops heartbeating (30s, i.e. two missed
+  10s beats), which covers pods that die without closing their socket.
+- Agents reconnect with exponential backoff (1s to 30s), re-registering with the
+  master each time. Restarting a master therefore repopulates the fleet on its
+  own without restarting the agents.
 
 ### Benefits of This Architecture
 

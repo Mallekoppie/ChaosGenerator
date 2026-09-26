@@ -39,6 +39,18 @@ spec:
           value: "9000"
         - name: CHAOS_TARGET_METRICS_PORT
           value: "9090"
+        # TLS is enabled when both the certificate and the key are set. A "grpc"
+        # target is always TLS-terminated: the agent's gRPC executor dials grpc
+        # targets with TLS credentials. The Secret is created by
+        # `make kind-secrets` from the certificate `make generate-certs` writes.
+        - name: CHAOS_TARGET_CERT_FILE
+          value: "/certs/tls.crt"
+        - name: CHAOS_TARGET_KEY_FILE
+          value: "/certs/tls.key"
+        volumeMounts:
+        - name: tls
+          mountPath: /certs
+          readOnly: true
         resources:
           requests:
             memory: "128Mi"
@@ -58,3 +70,7 @@ spec:
             port: 9000
           initialDelaySeconds: 5
           periodSeconds: 10
+      volumes:
+      - name: tls
+        secret:
+          secretName: target-tls

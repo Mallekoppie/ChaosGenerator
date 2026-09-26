@@ -24,23 +24,50 @@ type GRPCExecutor struct {
 	useCaseID        string
 	testExecutionID  string
 	sni              string
+	useTLS           bool
+	metrics          *TestMetrics
 }
 
 // NewGRPCExecutor creates a new gRPC executor
-func NewGRPCExecutor(targetAddress, targetProtocol string, connectionPooled bool, useCaseID, testExecutionID, sni string) (*GRPCExecutor, error) {
-	// Configure connection options
+func NewGRPCExecutor(targetAddress, targetProtocol string, connectionPooled bool, useCaseID, testExecutionID, sni string, metrics *TestMetrics) (*GRPCExecutor, error) {
+	executor := &GRPCExecutor{
+		targetAddress:    targetAddress,
+		targetProtocol:   targetProtocol,
+		connectionPooled: connectionPooled,
+		useCaseID:        useCaseID,
+		testExecutionID:  testExecutionID,
+		sni:              sni,
+		// A "grpc" target is assumed to be TLS-terminated, matching the
+		// credential setup the previous inline configuration used.
+		useTLS:  targetProtocol == "grpc",
+		metrics: metrics,
+	}
+
+	conn, err := grpc.Dial(targetAddress, executor.dialOptions()...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect: %w", err)
+	}
+
+	executor.conn = conn
+	executor.client = contracts.NewChaosTargetClient(conn)
+
+	return executor, nil
+}
+
+// dialOptions builds the dial options for this executor. It is shared by the
+// constructor and reconnect so a per-request reconnect never silently downgrades
+// a TLS target to an insecure connection.
+func (e *GRPCExecutor) dialOptions() []grpc.DialOption {
 	var opts []grpc.DialOption
 
-	// Configure TLS if using grpc protocol (assuming TLS)
-	if targetProtocol == "grpc" {
+	if e.useTLS {
 		tlsConfig := &tls.Config{
 			InsecureSkipVerify: true, // For testing purposes
 		}
-		if sni != "" {
-			tlsConfig.ServerName = sni
+		if e.sni != "" {
+			tlsConfig.ServerName = e.sni
 		}
-		creds := credentials.NewTLS(tlsConfig)
-		opts = append(opts, grpc.WithTransportCredentials(creds))
+		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)))
 	} else {
 		// Use insecure connection for testing
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -55,31 +82,13 @@ func NewGRPCExecutor(targetAddress, targetProtocol string, connectionPooled bool
 	)
 
 	// Connection pooling control
-	if !connectionPooled {
-		// For non-pooled connections, we'll create a new connection for each execution
-		// This is handled in the Execute method
+	if !e.connectionPooled {
+		// For non-pooled connections, we create a new connection for each request
+		// (see Execute); fail fast instead of queuing forever on a dead target.
 		opts = append(opts, grpc.WithDefaultCallOptions(grpc.WaitForReady(false)))
 	}
 
-	// Create connection
-	conn, err := grpc.Dial(targetAddress, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect: %w", err)
-	}
-
-	// Create client
-	client := contracts.NewChaosTargetClient(conn)
-
-	return &GRPCExecutor{
-		conn:             conn,
-		client:           client,
-		targetAddress:    targetAddress,
-		targetProtocol:   targetProtocol,
-		connectionPooled: connectionPooled,
-		useCaseID:        useCaseID,
-		testExecutionID:  testExecutionID,
-		sni:              sni,
-	}, nil
+	return opts
 }
 
 // Execute performs a single gRPC request based on the use case and records metrics
@@ -90,6 +99,10 @@ func (e *GRPCExecutor) Execute(ctx context.Context) error {
 	if !e.connectionPooled {
 		if err := e.reconnect(); err != nil {
 			AgentErrorsTotal.WithLabelValues(e.targetProtocol, e.useCaseID, "connection_failed", fmt.Sprintf("%v", e.connectionPooled)).Inc()
+			if ctx.Err() == nil {
+				outcome, code := classifyRequestError(err)
+				e.metrics.RecordRequest(outcome, code, time.Since(start).Seconds()*1000, 0, 0)
+			}
 			return fmt.Errorf("failed to reconnect: %w", err)
 		}
 		defer e.conn.Close()
@@ -144,6 +157,14 @@ func (e *GRPCExecutor) Execute(ctx context.Context) error {
 		AgentErrorsTotal.WithLabelValues(e.targetProtocol, e.useCaseID, "request_failed", fmt.Sprintf("%v", e.connectionPooled)).Inc()
 		AgentRequestDuration.WithLabelValues(e.targetProtocol, e.useCaseID, method, "error", fmt.Sprintf("%v", e.connectionPooled)).Observe(duration)
 		AgentRequestsTotal.WithLabelValues(e.targetProtocol, e.useCaseID, method, "error", fmt.Sprintf("%v", e.connectionPooled)).Inc()
+
+		// A cancelled context means the test is stopping; that is an expected
+		// shutdown, not a target failure, so it must not skew the error demux.
+		if ctx.Err() == nil {
+			outcome, code := classifyGRPCError(err)
+			e.metrics.RecordRequest(outcome, code, duration*1000, 0, 0)
+		}
+
 		return fmt.Errorf("request failed: %w", err)
 	}
 
@@ -151,6 +172,8 @@ func (e *GRPCExecutor) Execute(ctx context.Context) error {
 	AgentProcessingTime.WithLabelValues(e.targetProtocol, e.useCaseID, fmt.Sprintf("%v", e.connectionPooled)).Observe(duration)
 	AgentRequestsTotal.WithLabelValues(e.targetProtocol, e.useCaseID, method, "OK", fmt.Sprintf("%v", e.connectionPooled)).Inc()
 	AgentSuccessTotal.WithLabelValues(e.targetProtocol, e.useCaseID, fmt.Sprintf("%v", e.connectionPooled)).Inc()
+
+	e.metrics.RecordRequest(outcomeSuccess, "", duration*1000, 0, 0)
 
 	return nil
 }
@@ -161,16 +184,7 @@ func (e *GRPCExecutor) reconnect() error {
 		e.conn.Close()
 	}
 
-	var opts []grpc.DialOption
-	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	opts = append(opts,
-		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(256*1024*1024),
-			grpc.MaxCallSendMsgSize(256*1024*1024),
-		),
-	)
-
-	conn, err := grpc.Dial(e.targetAddress, opts...)
+	conn, err := grpc.Dial(e.targetAddress, e.dialOptions()...)
 	if err != nil {
 		return err
 	}

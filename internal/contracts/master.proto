@@ -12,20 +12,26 @@ service ChaosMaster {
     rpc UpdateAgent(UpdateAgentRequest) returns (UpdateAgentResponse) {}
     rpc DeleteAgent(DeleteAgentRequest) returns (DeleteAgentResponse) {}
     rpc ClearAllAgents(ClearAllAgentsRequest) returns (ClearAllAgentsResponse) {}
-    
+
     // Target operations
     rpc RegisterTarget(RegisterTargetRequest) returns (RegisterTargetResponse) {}
     rpc UpdateTarget(UpdateTargetRequest) returns (UpdateTargetResponse) {}
     rpc DeleteTarget(DeleteTargetRequest) returns (DeleteTargetResponse) {}
     rpc GetAllTargets(GetAllTargetsRequest) returns (GetAllTargetsResponse) {}
-    
+
     // Use case operations
     rpc GetUseCases(GetUseCasesRequest) returns (GetUseCasesResponse) {}
-    
+
     // Test execution operations
     rpc StartTestExecution(StartTestExecutionRequest) returns (StartTestExecutionResponse) {}
     rpc StopTestExecution(StopTestExecutionRequest) returns (StopTestExecutionResponse) {}
     rpc GetRunningTests(GetRunningTestsRequest) returns (GetRunningTestsResponse) {}
+
+    // Test metrics operations
+    rpc GetTestMetrics(GetTestMetricsRequest) returns (GetTestMetricsResponse) {}
+
+    // Test history operations
+    rpc GetTestHistory(GetTestHistoryRequest) returns (GetTestHistoryResponse) {}
 }
 
 // Agent messages
@@ -87,6 +93,7 @@ message AgentMessage {
     oneof payload {
         AgentHeartbeat heartbeat = 2;
         CommandResponse response = 3;
+        TestMetricsReport metricsReport = 4;
     }
 }
 
@@ -233,4 +240,197 @@ message RunningTestExecution {
     int32 simulatedUsersPerAgent = 6;
     int32 numberOfAgents = 7;
     int64 startTime = 8; // Unix timestamp
+}
+
+// Test metrics messages (agent -> master reports, master -> UI queries)
+
+// Latency histogram with cumulative bucket counts. Bounds are the inclusive
+// upper edge of each bucket in milliseconds; counts has len(bounds)+1 entries,
+// the final one being the +Inf overflow bucket. Counts are cumulative since the
+// start of the test execution so the master can sum them across agents without
+// losing data when a report is dropped.
+message LatencyHistogram {
+    repeated double boundsMs = 1;
+    repeated int64 counts = 2;
+    int64 total = 3;
+    double sumMs = 4;
+}
+
+// TestMetricsReport is a cumulative snapshot an agent sends for one running
+// test execution. Counters never reset, so the master derives rates from the
+// delta between consecutive reports.
+message TestMetricsReport {
+    string testExecutionId = 1;
+    int64 timestampMs = 2;
+
+    // Cumulative outcome counters since the test started.
+    int64 totalRequests = 10;
+    int64 successRequests = 11;
+    int64 clientErrors = 12;
+    int64 serverErrors = 13;
+    int64 timeouts = 14;
+    int64 connectionResets = 15;
+    int64 otherErrors = 16;
+    map<string, int64> errorsByCode = 17;
+    // Connection-level failures that are not resets: refused, unreachable,
+    // premature EOF and broken pool connections.
+    int64 connectionErrors = 18;
+
+    // Cumulative payload volume.
+    int64 bytesIn = 20;
+    int64 bytesOut = 21;
+
+    // Cumulative request latency distribution.
+    LatencyHistogram latency = 22;
+
+    // Worker runtime telemetry.
+    int32 activeUsers = 30;
+    double cpuPercent = 31;
+    int64 memoryBytes = 32;
+    int64 metricsScrapes = 33;
+}
+
+message GetTestMetricsRequest {
+    string testExecutionId = 1;
+}
+
+message TestMetricsSummary {
+    string testExecutionId = 1;
+    string useCaseId = 2;
+    string useCaseName = 3;
+    string targetId = 4;
+    string targetName = 5;
+    string targetAddress = 6;
+    string targetProtocol = 7; // "http", "https", "grpc"
+    int32 simulatedUsersPerAgent = 8;
+    int32 numberOfAgents = 9;
+    int64 startTime = 10; // Unix timestamp
+    bool running = 11;
+
+    // Live fleet envelope.
+    double egressRps = 12;
+    double p50Ms = 13;
+    double p90Ms = 14;
+    double p95Ms = 15;
+    double p99Ms = 16;
+    double errorRate = 17; // 0..1
+    int64 totalRequests = 18;
+    int64 totalErrors = 19;
+    int64 activeUsers = 20;
+    int32 connectedAgents = 21;
+
+    // Cumulative failure demux since the test started.
+    int64 successRequests = 22;
+    int64 clientErrors = 23;
+    int64 serverErrors = 24;
+    int64 timeouts = 25;
+    int64 connectionResets = 26;
+    map<string, int64> errorsByCode = 27; // e.g. "502", "504", "Unavailable"
+    int64 connectionErrors = 28;
+    // Agents expected for this run that have stopped reporting.
+    int32 silentAgents = 29;
+
+    // Run completion metadata. endTime is zero while the run is still going.
+    int64 endTime = 30;    // Unix timestamp
+    int64 durationMs = 31; // start -> end (or now) in milliseconds
+
+    // Cumulative payload volume across the fleet.
+    int64 bytesIn = 32;
+    int64 bytesOut = 33;
+}
+
+// One point on the fleet time-series. Outcome counters are deltas observed over
+// the sample interval, not cumulative totals.
+message TestMetricsSample {
+    int64 timestampMs = 1;
+    double egressRps = 2;
+    double p50Ms = 3;
+    double p90Ms = 4;
+    double p95Ms = 5;
+    double p99Ms = 6;
+    int64 ok = 7;
+    int64 clientErrors = 8;
+    int64 serverErrors = 9;
+    int64 timeouts = 10;
+    int64 resets = 11;
+    double errorRate = 12;
+    int64 connectionErrors = 13;
+}
+
+// Per-agent runtime row for the worker fleet table.
+message TestMetricsWorker {
+    string agentId = 1;
+    bool online = 2;
+    int32 activeUsers = 3;
+    double egressRps = 4;
+    double observedP99Ms = 5;
+    double cpuPercent = 6;
+    int64 memoryBytes = 7;
+    double errorRate = 8;
+    int64 metricsScrapes = 9;
+    int64 lastUpdateMs = 10;
+    int64 connectionErrors = 11;
+    // True when this agent is expected but has not reported recently; its
+    // derived egress rate is treated as zero.
+    bool stale = 12;
+
+    // Cumulative per-agent counters since the test started. These power the
+    // per-agent section and totals of the exported documentation report.
+    int64 totalRequests = 13;
+    int64 successRequests = 14;
+    int64 clientErrors = 15;
+    int64 serverErrors = 16;
+    int64 timeouts = 17;
+    int64 connectionResets = 18;
+    int64 otherErrors = 19;
+    map<string, int64> errorsByCode = 20;
+    int64 bytesIn = 21;
+    int64 bytesOut = 22;
+    double p50Ms = 23;
+    double p90Ms = 24;
+    double p95Ms = 25;
+    double avgLatencyMs = 26;
+}
+
+message GetTestMetricsResponse {
+    bool found = 1;
+    string message = 2;
+    TestMetricsSummary summary = 3;
+    repeated TestMetricsSample samples = 4;
+    repeated TestMetricsWorker workers = 5;
+    LatencyHistogram fleetLatency = 6;
+}
+
+// Test history messages (master -> UI list of past executions).
+
+message GetTestHistoryRequest {
+    // Maximum number of runs to return, newest first. Zero means the server
+    // default.
+    int32 limit = 1;
+}
+
+// TestRunSummary is a lightweight row describing one past (or running) test
+// execution. The full per-agent breakdown is fetched via GetTestMetrics.
+message TestRunSummary {
+    string testExecutionId = 1;
+    string useCaseId = 2;
+    string useCaseName = 3;
+    string targetId = 4;
+    string targetName = 5;
+    string targetAddress = 6;
+    string targetProtocol = 7;
+    int32 simulatedUsersPerAgent = 8;
+    int32 numberOfAgents = 9;
+    int64 startTime = 10; // Unix timestamp
+    int64 endTime = 11;   // Unix timestamp; 0 while running
+    int64 durationMs = 12;
+    bool running = 13;
+    int64 totalRequests = 14;
+    int64 totalErrors = 15;
+    double errorRate = 16; // 0..1
+    double egressRps = 17;
+}
+
+message GetTestHistoryResponse {
+    repeated TestRunSummary runs = 1;
 }

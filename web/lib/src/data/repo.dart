@@ -76,6 +76,19 @@ class AgentsRepository extends ChangeNotifier {
       return e.message ?? 'Failed to clear agents';
     }
   }
+
+  Timer? _timer;
+
+  /// Refreshes the agent list every [interval] until [stopPolling] is called,
+  /// so agents that connect or disconnect show up without a manual refresh.
+  void startPolling({Duration interval = const Duration(seconds: 3)}) {
+    _timer ??= Timer.periodic(interval, (_) => load());
+  }
+
+  void stopPolling() {
+    _timer?.cancel();
+    _timer = null;
+  }
 }
 
 /// Loads and mutates the test targets.
@@ -307,5 +320,153 @@ class UsersRepository extends ChangeNotifier {
       backend.handleError(e);
       return e.message ?? 'Failed to delete user';
     }
+  }
+}
+
+/// Loads the agent-perspective telemetry for a single test execution.
+///
+/// The master aggregates the cumulative reports the agents push over their
+/// stream, so this is available without Prometheus or Grafana.
+class TestMetricsRepository extends ChangeNotifier {
+  final Backend backend;
+
+  TestMetricsRepository({required this.backend});
+
+  GetTestMetricsResponse? response;
+  bool loading = false;
+  String? error;
+  Timer? _timer;
+
+  List<TestMetricsSample> get samples => response?.samples ?? const [];
+  TestMetricsSummary? get summary => response?.summary;
+  List<TestMetricsWorker> get workers => response?.workers ?? const [];
+
+  Future<void> load(String testExecutionId) async {
+    loading = true;
+    notifyListeners();
+
+    try {
+      final result = await backend.master.getTestMetrics(
+        GetTestMetricsRequest(testExecutionId: testExecutionId),
+      );
+
+      if (!result.found) {
+        response = null;
+        error = result.message.isEmpty
+            ? 'No metrics available for this test execution'
+            : result.message;
+      } else {
+        response = result;
+        error = null;
+      }
+    } on GrpcError catch (e) {
+      backend.handleError(e);
+      error = e.message ?? 'Failed to load test metrics';
+    } catch (e) {
+      error = 'Failed to load test metrics: $e';
+    } finally {
+      loading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Refreshes the metrics every [interval] until [stopPolling] is called.
+  void startPolling(
+    String testExecutionId, {
+    Duration interval = const Duration(seconds: 3),
+  }) {
+    stopPolling();
+    _timer = Timer.periodic(interval, (_) => load(testExecutionId));
+  }
+
+  void stopPolling() {
+    _timer?.cancel();
+    _timer = null;
+  }
+
+  /// One-shot fetch that does not touch the shared drilldown state. Used when
+  /// exporting a run straight from the history list.
+  Future<GetTestMetricsResponse> fetch(String testExecutionId) async {
+    final result = await backend.master.getTestMetrics(
+      GetTestMetricsRequest(testExecutionId: testExecutionId),
+    );
+
+    if (!result.found) {
+      throw StateError(
+        result.message.isEmpty
+            ? 'No metrics available for this test execution'
+            : result.message,
+      );
+    }
+
+    return result;
+  }
+
+  /// Clears the current response so a new drilldown does not render stale data.
+  void reset() {
+    response = null;
+    error = null;
+    loading = false;
+  }
+
+  @override
+  void dispose() {
+    stopPolling();
+    super.dispose();
+  }
+}
+
+/// Loads the recently finished test executions for the history panel.
+///
+/// Finished runs are retained by the master (in memory and on disk), so a run
+/// whose live export was missed can still be reopened and exported later.
+class HistoryRepository extends ChangeNotifier {
+  final Backend backend;
+
+  HistoryRepository({required this.backend});
+
+  List<TestRunSummary> runs = const [];
+  bool loading = false;
+  String? error;
+  Timer? _timer;
+
+  Future<void> load({int limit = 0}) async {
+    loading = true;
+    notifyListeners();
+
+    try {
+      final response = await backend.master.getTestHistory(
+        GetTestHistoryRequest(limit: limit),
+      );
+      runs = List<TestRunSummary>.from(response.runs);
+      error = null;
+    } on GrpcError catch (e) {
+      backend.handleError(e);
+      error = e.message ?? 'Failed to load test history';
+    } catch (e) {
+      error = 'Failed to load test history: $e';
+    } finally {
+      loading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Refreshes the history every [interval] until [stopPolling] is called.
+  void startPolling({
+    Duration interval = const Duration(seconds: 5),
+    int limit = 0,
+  }) {
+    _timer ??= Timer.periodic(interval, (_) => load(limit: limit));
+  }
+
+  void stopPolling() {
+    _timer?.cancel();
+    _timer = null;
+  }
+
+  @override
+  void dispose() {
+    stopPolling();
+    super.dispose();
   }
 }

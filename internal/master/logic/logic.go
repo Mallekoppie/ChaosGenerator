@@ -7,9 +7,6 @@ import (
 	"github.com/Mallekoppie/goslow/platform"
 	"go.uber.org/zap"
 
-	"fmt"
-	"time"
-
 	"github.com/google/uuid"
 )
 
@@ -100,14 +97,16 @@ func RegisterAgent(hostname string, port int, metricsPort int, version string) (
 	// Generate unique agent ID
 	agentId := uuid.New().String()
 
-	// Create agent model with initial status
+	// Create agent model. Status is owned by the live connection: GetAllAgents
+	// reports "online" for agents with an active stream and rows are removed
+	// when the stream ends, so this initial value only needs to be sane.
 	agent := models.Agent{
 		Id:          agentId,
 		Host:        hostname,
 		Port:        port,
 		MetricsPort: metricsPort,
 		Enabled:     true,
-		Status:      fmt.Sprintf("Connected at %s (version: %s)", time.Now().Format(time.RFC3339), version),
+		Status:      "online",
 	}
 
 	// Save agent to repository

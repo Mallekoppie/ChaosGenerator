@@ -5,15 +5,37 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+var (
+	metricsScrapeCount atomic.Int64
+	metricsLastScrape  atomic.Int64
+)
+
+// MetricsScrapeStats returns the number of Prometheus scrapes of the agent's
+// /metrics endpoint and the Unix timestamp of the most recent one. It is zero
+// when the endpoint has never been scraped, which is how the UI can tell that
+// an agent is running without Prometheus.
+func MetricsScrapeStats() (count int64, lastUnix int64) {
+	return metricsScrapeCount.Load(), metricsLastScrape.Load()
+}
+
 // StartMetricsServer starts an HTTP server to expose Prometheus metrics
 func StartMetricsServer(ctx context.Context, port string) error {
 	mux := http.NewServeMux()
-	mux.Handle("/metrics", promhttp.Handler())
+
+	// Count scrapes so the agent can report Prometheus scraper health to the
+	// master. The handler is built once and reused for every request.
+	promHandler := promhttp.Handler()
+	mux.Handle("/metrics", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		metricsScrapeCount.Add(1)
+		metricsLastScrape.Store(time.Now().Unix())
+		promHandler.ServeHTTP(w, r)
+	}))
 
 	// Add a health check endpoint
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

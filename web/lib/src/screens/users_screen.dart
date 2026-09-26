@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../data/repo.dart';
 import '../generated/generated.dart';
+import '../theme.dart';
+import '../widgets/aether_chrome.dart';
+import '../widgets/aether_common.dart';
+import '../widgets/aether_panel.dart';
+import '../widgets/aether_table.dart';
 
 class UsersScreen extends StatefulWidget {
   final UsersRepository repository;
@@ -44,15 +49,19 @@ class _UsersScreenState extends State<UsersScreen> {
 
     final error = await widget.repository.delete(user.id);
     if (error != null && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error)));
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Users'),
+      backgroundColor: Colors.transparent,
+      appBar: aetherAppBar(
+        context,
+        title: 'Users',
         actions: [
           IconButton(
             tooltip: 'Refresh',
@@ -67,45 +76,74 @@ class _UsersScreenState extends State<UsersScreen> {
           final repository = widget.repository;
 
           if (repository.loading && repository.users.isEmpty) {
-            return const Center(child: CircularProgressIndicator());
+            return const ConsoleLoading();
           }
 
           if (repository.error != null && repository.users.isEmpty) {
-            return Center(child: Text(repository.error!));
+            return ConsoleMessage(
+              repository.error!,
+              icon: Icons.error_outline,
+              color: AetherPalette.crimson,
+            );
           }
 
-          return SingleChildScrollView(
+          return ListView(
             padding: const EdgeInsets.all(16),
-            child: DataTable(
-              columns: const [
-                DataColumn(label: Text('Username')),
-                DataColumn(label: Text('Created')),
-                DataColumn(label: Text('Actions')),
-              ],
-              rows: repository.users
-                  .map(
-                    (user) => DataRow(
-                      cells: [
-                        DataCell(Text(user.username)),
-                        DataCell(
-                          Text(
-                            DateTime.fromMillisecondsSinceEpoch(
-                              user.createdAt.toInt() * 1000,
-                            ).toLocal().toString(),
-                          ),
-                        ),
-                        DataCell(
-                          IconButton(
-                            tooltip: 'Delete',
-                            icon: const Icon(Icons.delete),
-                            onPressed: () => _delete(user),
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                  .toList(),
-            ),
+            children: [
+              AetherPanel(
+                title: 'Operator directory',
+                padding: EdgeInsets.zero,
+                trailing: TelemetryText(
+                  '${repository.users.length} accounts',
+                  size: 11,
+                  color: AetherPalette.textMuted,
+                ),
+                child: repository.users.isEmpty
+                    ? const ConsoleMessage(
+                        'No users are registered',
+                        icon: Icons.people_outline,
+                      )
+                    : AetherDataTable(
+                        columns: const [
+                          DataColumn(label: Text('Username')),
+                          DataColumn(label: Text('Created')),
+                          DataColumn(label: Text('Actions')),
+                        ],
+                        rows: [
+                          for (final user in repository.users)
+                            DataRow(
+                              color: AetherDataTable.rowHighlight,
+                              cells: [
+                                DataCell(
+                                  Text(
+                                    user.username,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                                DataCell(
+                                  TelemetryText(
+                                    DateTime.fromMillisecondsSinceEpoch(
+                                      user.createdAt.toInt() * 1000,
+                                    ).toLocal().toString(),
+                                    size: 12.5,
+                                    color: AetherPalette.textMuted,
+                                  ),
+                                ),
+                                DataCell(
+                                  IconButton(
+                                    tooltip: 'Delete',
+                                    icon: const Icon(Icons.delete),
+                                    onPressed: () => _delete(user),
+                                  ),
+                                ),
+                              ],
+                            ),
+                        ],
+                      ),
+              ),
+            ],
           );
         },
       ),

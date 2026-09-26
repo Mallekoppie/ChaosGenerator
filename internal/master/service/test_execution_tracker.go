@@ -17,6 +17,8 @@ type RunningTest struct {
 	UseCaseName            string
 	TargetId               string
 	TargetName             string
+	TargetAddress          string
+	TargetProtocol         string
 	SimulatedUsersPerAgent int32
 	AgentIds               []string
 	StartTime              time.Time

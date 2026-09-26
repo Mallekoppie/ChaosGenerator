@@ -1,15 +1,28 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
+import '../data/download.dart';
 import '../data/repo.dart';
+import '../data/test_report.dart';
+import '../generated/generated.dart';
+import '../theme.dart';
+import '../widgets/aether_chrome.dart';
+import '../widgets/aether_common.dart';
+import '../widgets/aether_panel.dart';
+import '../widgets/aether_table.dart';
 
 class TestsScreen extends StatefulWidget {
   final ExecutionsRepository executions;
+  final HistoryRepository history;
+  final TestMetricsRepository metrics;
   final TargetsRepository targets;
   final UseCasesRepository useCases;
   final AgentsRepository agents;
 
   const TestsScreen({
     required this.executions,
+    required this.history,
+    required this.metrics,
     required this.targets,
     required this.useCases,
     required this.agents,
@@ -37,11 +50,14 @@ class _TestsScreenState extends State<TestsScreen> {
     widget.agents.load();
     widget.executions.load();
     widget.executions.startPolling();
+    widget.history.load();
+    widget.history.startPolling();
   }
 
   @override
   void dispose() {
     widget.executions.stopPolling();
+    widget.history.stopPolling();
     _usersController.dispose();
     _agentsController.dispose();
     super.dispose();
@@ -51,16 +67,18 @@ class _TestsScreenState extends State<TestsScreen> {
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _start() async {
     final users = int.tryParse(_usersController.text) ?? 0;
 
-    if (_selectedUseCaseId.isEmpty ||
-        _selectedTargetId.isEmpty ||
-        users <= 0) {
-      _showMessage('Select a use case, a target and a positive number of users');
+    if (_selectedUseCaseId.isEmpty || _selectedTargetId.isEmpty || users <= 0) {
+      _showMessage(
+        'Select a use case, a target and a positive number of users',
+      );
       return;
     }
 
@@ -87,42 +105,99 @@ class _TestsScreenState extends State<TestsScreen> {
     if (error != null) {
       _showMessage(error);
     }
+    // A stopped run moves from the live table into the history panel.
+    await widget.history.load();
+  }
+
+  Future<void> _refresh() async {
+    await Future.wait([
+      widget.executions.load(),
+      widget.history.load(),
+    ]);
+  }
+
+  /// Fetches the full metrics for one history row and downloads the Markdown
+  /// documentation report. The run no longer needs to be live to be exported.
+  Future<void> _exportRun(TestRunSummary run) async {
+    _showMessage('Preparing report for ${run.testExecutionId}...');
+
+    try {
+      final response = await widget.metrics.fetch(run.testExecutionId);
+      downloadText(
+        testReportFileName(run.testExecutionId),
+        buildTestReportMarkdown(response),
+        mimeType: 'text/markdown;charset=utf-8',
+      );
+      _showMessage('Report exported');
+    } catch (e) {
+      _showMessage('Failed to export report: $e');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Tests'),
+      backgroundColor: Colors.transparent,
+      appBar: aetherAppBar(
+        context,
+        title: 'Tests',
         actions: [
           IconButton(
             tooltip: 'Refresh',
             icon: const Icon(Icons.refresh),
-            onPressed: widget.executions.load,
+            onPressed: _refresh,
           ),
         ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             ListenableBuilder(
-              listenable: Listenable.merge(
-                [widget.useCases, widget.targets, widget.agents],
+              listenable: Listenable.merge([
+                widget.useCases,
+                widget.targets,
+                widget.agents,
+              ]),
+              builder: (context, _) => AetherPanel(
+                title: 'Start a test',
+                accent: AetherPalette.emeraldBright,
+                child: _buildForm(),
               ),
-              builder: (context, _) => _buildForm(),
             ),
-            const SizedBox(height: 24),
-            Text(
-              'Running tests',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 16),
             Expanded(
+              flex: 3,
               child: ListenableBuilder(
                 listenable: widget.executions,
-                builder: (context, _) => _buildRunning(),
+                builder: (context, _) => AetherPanel(
+                  title: 'Running tests',
+                  fill: true,
+                  padding: EdgeInsets.zero,
+                  trailing: const StatusPill(
+                    label: 'Auto-refresh: 3s',
+                    color: AetherPalette.emeraldBright,
+                  ),
+                  child: _buildRunning(),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Expanded(
+              flex: 2,
+              child: ListenableBuilder(
+                listenable: widget.history,
+                builder: (context, _) => AetherPanel(
+                  title: 'Recent runs',
+                  fill: true,
+                  padding: EdgeInsets.zero,
+                  trailing: const StatusPill(
+                    label: 'Auto-refresh: 5s',
+                    color: AetherPalette.emeraldBright,
+                  ),
+                  child: _buildHistory(),
+                ),
               ),
             ),
           ],
@@ -143,7 +218,9 @@ class _TestsScreenState extends State<TestsScreen> {
         SizedBox(
           width: 260,
           child: DropdownButtonFormField<String>(
-            initialValue: _selectedUseCaseId.isEmpty ? null : _selectedUseCaseId,
+            initialValue: _selectedUseCaseId.isEmpty
+                ? null
+                : _selectedUseCaseId,
             decoration: const InputDecoration(labelText: 'Use case'),
             items: useCases
                 .map(
@@ -205,11 +282,14 @@ class _TestsScreenState extends State<TestsScreen> {
     final repository = widget.executions;
 
     if (repository.executions.isEmpty) {
-      return const Center(child: Text('No tests are running'));
+      return const ConsoleMessage(
+        'No tests are running',
+        icon: Icons.play_circle_outline,
+      );
     }
 
     return SingleChildScrollView(
-      child: DataTable(
+      child: AetherDataTable(
         columns: const [
           DataColumn(label: Text('Execution')),
           DataColumn(label: Text('Use case')),
@@ -219,44 +299,145 @@ class _TestsScreenState extends State<TestsScreen> {
           DataColumn(label: Text('Started')),
           DataColumn(label: Text('')),
         ],
-        rows: repository.executions
-            .map(
-              (execution) => DataRow(
-                cells: [
-                  DataCell(Text(execution.testExecutionId)),
-                  DataCell(
-                    Text(
-                      execution.useCaseName.isEmpty
-                          ? execution.useCaseId
-                          : execution.useCaseName,
+        rows: [
+          for (final execution in repository.executions)
+            DataRow(
+              color: AetherDataTable.rowHighlight,
+              cells: [
+                DataCell(
+                  Tooltip(
+                    message: 'Open metrics drilldown',
+                    child: InkWell(
+                      onTap: () => context.go(
+                        '/tests/metrics/${execution.testExecutionId}',
+                      ),
+                      child: TelemetryText(
+                        execution.testExecutionId,
+                        size: 12.5,
+                        color: AetherPalette.cyanBright,
+                      ),
                     ),
                   ),
-                  DataCell(
-                    Text(
-                      execution.targetName.isEmpty
-                          ? execution.targetId
-                          : execution.targetName,
+                ),
+                DataCell(
+                  Text(
+                    execution.useCaseName.isEmpty
+                        ? execution.useCaseId
+                        : execution.useCaseName,
+                  ),
+                ),
+                DataCell(
+                  Text(
+                    execution.targetName.isEmpty
+                        ? execution.targetId
+                        : execution.targetName,
+                  ),
+                ),
+                DataCell(TelemetryText('${execution.numberOfAgents}')),
+                DataCell(TelemetryText('${execution.simulatedUsersPerAgent}')),
+                DataCell(
+                  TelemetryText(
+                    DateTime.fromMillisecondsSinceEpoch(
+                      execution.startTime.toInt() * 1000,
+                    ).toLocal().toString(),
+                    size: 12.5,
+                    color: AetherPalette.textMuted,
+                  ),
+                ),
+                DataCell(
+                  TextButton(
+                    onPressed: () => _stop(execution.testExecutionId),
+                    child: const Text('Stop'),
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHistory() {
+    final repository = widget.history;
+
+    if (repository.runs.isEmpty) {
+      return ConsoleMessage(
+        repository.loading
+            ? 'Loading previous runs...'
+            : 'No previous test runs',
+        icon: Icons.history,
+      );
+    }
+
+    return SingleChildScrollView(
+      child: AetherDataTable(
+        columns: const [
+          DataColumn(label: Text('Execution')),
+          DataColumn(label: Text('Use case')),
+          DataColumn(label: Text('Agents')),
+          DataColumn(label: Text('Requests')),
+          DataColumn(label: Text('Errors')),
+          DataColumn(label: Text('Started')),
+          DataColumn(label: Text('Ended')),
+          DataColumn(label: Text('Duration')),
+          DataColumn(label: Text('')),
+        ],
+        rows: [
+          for (final run in repository.runs)
+            DataRow(
+              cells: [
+                DataCell(
+                  Tooltip(
+                    message: 'Open metrics drilldown',
+                    child: InkWell(
+                      onTap: () => context.go(
+                        '/tests/metrics/${run.testExecutionId}',
+                      ),
+                      child: TelemetryText(
+                        run.testExecutionId,
+                        size: 12.5,
+                        color: AetherPalette.cyanBright,
+                      ),
                     ),
                   ),
-                  DataCell(Text('${execution.numberOfAgents}')),
-                  DataCell(Text('${execution.simulatedUsersPerAgent}')),
-                  DataCell(
-                    Text(
-                      DateTime.fromMillisecondsSinceEpoch(
-                        execution.startTime.toInt() * 1000,
-                      ).toLocal().toString(),
+                ),
+                DataCell(
+                  Text(
+                    run.useCaseName.isEmpty ? run.useCaseId : run.useCaseName,
+                  ),
+                ),
+                DataCell(TelemetryText('${run.numberOfAgents}')),
+                DataCell(TelemetryText('${run.totalRequests.toInt()}')),
+                DataCell(TelemetryText('${run.totalErrors.toInt()}')),
+                DataCell(
+                  TelemetryText(
+                    formatLocalTimestamp(run.startTime.toInt()),
+                    size: 12.5,
+                    color: AetherPalette.textMuted,
+                  ),
+                ),
+                DataCell(
+                  TelemetryText(
+                    formatLocalTimestamp(run.endTime.toInt()),
+                    size: 12.5,
+                    color: AetherPalette.textMuted,
+                  ),
+                ),
+                DataCell(
+                  TelemetryText(formatDurationMs(run.durationMs.toInt())),
+                ),
+                DataCell(
+                  Tooltip(
+                    message: 'Export documentation report',
+                    child: IconButton(
+                      icon: const Icon(Icons.download, size: 18),
+                      onPressed: () => _exportRun(run),
                     ),
                   ),
-                  DataCell(
-                    TextButton(
-                      onPressed: () => _stop(execution.testExecutionId),
-                      child: const Text('Stop'),
-                    ),
-                  ),
-                ],
-              ),
-            )
-            .toList(),
+                ),
+              ],
+            ),
+        ],
       ),
     );
   }

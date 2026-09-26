@@ -1,7 +1,11 @@
-# Chaos Master web app
+# ChaosProcessor web app
 
 Flutter web control panel for the Chaos Generator master. It talks to the
 master over **gRPC-Web** using the protobuf contract in `../internal/contracts`.
+
+The UI uses the **Aether Flight Deck** ("Deep Space Cyan") dark console theme,
+defined in `lib/src/theme.dart`. `STITCH-UI-BRIEF.md` documents the original
+layout and `STICH-UI-RESPONSE.md` is the design spec it was rebuilt against.
 
 ## Generated code
 

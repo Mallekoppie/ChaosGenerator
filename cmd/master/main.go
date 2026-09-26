@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 
+	"mallekoppie/ChaosGenerator/internal/master/logic"
 	"mallekoppie/ChaosGenerator/internal/master/service"
 	"mallekoppie/ChaosGenerator/internal/master/web"
 
@@ -53,6 +56,26 @@ func main() {
 	platform.SetPlatformConfiguration(config)
 
 	platform.SetupBoltDB()
+
+	// Restore the finished test runs left by a previous master process and keep
+	// persisting new ones so the history view survives restarts.
+	historyLimit := service.DefaultHistoryLimit
+	if raw := os.Getenv("CHAOS_MASTER_HISTORY_LIMIT"); raw != "" {
+		if parsed, convErr := strconv.Atoi(raw); convErr == nil && parsed > 0 {
+			historyLimit = parsed
+		} else {
+			platform.Log.Warn("Ignoring invalid CHAOS_MASTER_HISTORY_LIMIT", zap.String("value", raw))
+		}
+	}
+	service.GetTestMetricsStore().EnablePersistence(historyLimit)
+
+	// Agents re-register when they reconnect, so rows left behind by a previous
+	// master process are stale. Clear them at startup and start the heartbeat
+	// monitor that keeps the online agent list honest.
+	if _, err := logic.ClearAllAgents(); err != nil {
+		platform.Log.Warn("Unable to clear stale agents on startup", zap.Error(err))
+	}
+	service.StartConnectionMonitor(context.Background())
 
 	services := []platform.GRPCService{
 		&service.ChaosMasterServer{},

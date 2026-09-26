@@ -51,18 +51,6 @@ func main() {
 	log.Println("Chaos Agent starting...")
 	log.Printf("Master address: %s", config.MasterAddress)
 
-	// Register with master and get agent ID
-	agentId, err := agent.RegisterWithMaster(config.MasterAddress, config.Port, config.MetricsPort, config.Version)
-	if err != nil {
-		log.Printf("Failed to register with master: %v", err)
-		return
-	}
-
-	log.Printf("Registered with master. Agent ID: %s", agentId)
-
-	// Create agent client
-	client := agent.NewClient(config.MasterAddress, agentId)
-
 	// Create context that can be cancelled
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -73,20 +61,17 @@ func main() {
 		return
 	}
 
-	// Connect to master and start listening for commands
-	if err := client.Connect(ctx); err != nil {
-		log.Printf("Failed to connect to master: %v", err)
-		return
-	}
-	defer client.Close()
-
-	log.Println("Agent connected and listening for commands...")
-
-	// Wait for interrupt signal
+	// Wait for interrupt signal to shut down cleanly
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	<-sigChan
+	go func() {
+		<-sigChan
+		log.Println("Shutting down agent...")
+		cancel()
+	}()
 
-	log.Println("Shutting down agent...")
-	cancel()
+	// Register and connect, reconnecting automatically if the stream drops.
+	agent.Run(ctx, config.MasterAddress, config.Port, config.MetricsPort, config.Version)
+
+	log.Println("Agent stopped")
 }
