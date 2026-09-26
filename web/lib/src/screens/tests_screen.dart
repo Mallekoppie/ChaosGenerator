@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../data/repo.dart';
+import '../theme.dart';
+import '../widgets/aether_chrome.dart';
+import '../widgets/aether_common.dart';
+import '../widgets/aether_panel.dart';
+import '../widgets/aether_table.dart';
 
 class TestsScreen extends StatefulWidget {
   final ExecutionsRepository executions;
@@ -51,16 +56,18 @@ class _TestsScreenState extends State<TestsScreen> {
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _start() async {
     final users = int.tryParse(_usersController.text) ?? 0;
 
-    if (_selectedUseCaseId.isEmpty ||
-        _selectedTargetId.isEmpty ||
-        users <= 0) {
-      _showMessage('Select a use case, a target and a positive number of users');
+    if (_selectedUseCaseId.isEmpty || _selectedTargetId.isEmpty || users <= 0) {
+      _showMessage(
+        'Select a use case, a target and a positive number of users',
+      );
       return;
     }
 
@@ -92,8 +99,10 @@ class _TestsScreenState extends State<TestsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Tests'),
+      backgroundColor: Colors.transparent,
+      appBar: aetherAppBar(
+        context,
+        title: 'Tests',
         actions: [
           IconButton(
             tooltip: 'Refresh',
@@ -105,24 +114,34 @@ class _TestsScreenState extends State<TestsScreen> {
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             ListenableBuilder(
-              listenable: Listenable.merge(
-                [widget.useCases, widget.targets, widget.agents],
+              listenable: Listenable.merge([
+                widget.useCases,
+                widget.targets,
+                widget.agents,
+              ]),
+              builder: (context, _) => AetherPanel(
+                title: 'Start a test',
+                accent: AetherPalette.emeraldBright,
+                child: _buildForm(),
               ),
-              builder: (context, _) => _buildForm(),
             ),
-            const SizedBox(height: 24),
-            Text(
-              'Running tests',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 16),
             Expanded(
               child: ListenableBuilder(
                 listenable: widget.executions,
-                builder: (context, _) => _buildRunning(),
+                builder: (context, _) => AetherPanel(
+                  title: 'Running tests',
+                  fill: true,
+                  padding: EdgeInsets.zero,
+                  trailing: const StatusPill(
+                    label: 'Auto-refresh: 3s',
+                    color: AetherPalette.emeraldBright,
+                  ),
+                  child: _buildRunning(),
+                ),
               ),
             ),
           ],
@@ -143,7 +162,9 @@ class _TestsScreenState extends State<TestsScreen> {
         SizedBox(
           width: 260,
           child: DropdownButtonFormField<String>(
-            initialValue: _selectedUseCaseId.isEmpty ? null : _selectedUseCaseId,
+            initialValue: _selectedUseCaseId.isEmpty
+                ? null
+                : _selectedUseCaseId,
             decoration: const InputDecoration(labelText: 'Use case'),
             items: useCases
                 .map(
@@ -205,11 +226,14 @@ class _TestsScreenState extends State<TestsScreen> {
     final repository = widget.executions;
 
     if (repository.executions.isEmpty) {
-      return const Center(child: Text('No tests are running'));
+      return const ConsoleMessage(
+        'No tests are running',
+        icon: Icons.play_circle_outline,
+      );
     }
 
     return SingleChildScrollView(
-      child: DataTable(
+      child: AetherDataTable(
         columns: const [
           DataColumn(label: Text('Execution')),
           DataColumn(label: Text('Use case')),
@@ -219,44 +243,52 @@ class _TestsScreenState extends State<TestsScreen> {
           DataColumn(label: Text('Started')),
           DataColumn(label: Text('')),
         ],
-        rows: repository.executions
-            .map(
-              (execution) => DataRow(
-                cells: [
-                  DataCell(Text(execution.testExecutionId)),
-                  DataCell(
-                    Text(
-                      execution.useCaseName.isEmpty
-                          ? execution.useCaseId
-                          : execution.useCaseName,
-                    ),
+        rows: [
+          for (final execution in repository.executions)
+            DataRow(
+              color: AetherDataTable.rowHighlight,
+              cells: [
+                DataCell(
+                  TelemetryText(
+                    execution.testExecutionId,
+                    size: 12.5,
+                    color: AetherPalette.cyanBright,
                   ),
-                  DataCell(
-                    Text(
-                      execution.targetName.isEmpty
-                          ? execution.targetId
-                          : execution.targetName,
-                    ),
+                ),
+                DataCell(
+                  Text(
+                    execution.useCaseName.isEmpty
+                        ? execution.useCaseId
+                        : execution.useCaseName,
                   ),
-                  DataCell(Text('${execution.numberOfAgents}')),
-                  DataCell(Text('${execution.simulatedUsersPerAgent}')),
-                  DataCell(
-                    Text(
-                      DateTime.fromMillisecondsSinceEpoch(
-                        execution.startTime.toInt() * 1000,
-                      ).toLocal().toString(),
-                    ),
+                ),
+                DataCell(
+                  Text(
+                    execution.targetName.isEmpty
+                        ? execution.targetId
+                        : execution.targetName,
                   ),
-                  DataCell(
-                    TextButton(
-                      onPressed: () => _stop(execution.testExecutionId),
-                      child: const Text('Stop'),
-                    ),
+                ),
+                DataCell(TelemetryText('${execution.numberOfAgents}')),
+                DataCell(TelemetryText('${execution.simulatedUsersPerAgent}')),
+                DataCell(
+                  TelemetryText(
+                    DateTime.fromMillisecondsSinceEpoch(
+                      execution.startTime.toInt() * 1000,
+                    ).toLocal().toString(),
+                    size: 12.5,
+                    color: AetherPalette.textMuted,
                   ),
-                ],
-              ),
-            )
-            .toList(),
+                ),
+                DataCell(
+                  TextButton(
+                    onPressed: () => _stop(execution.testExecutionId),
+                    child: const Text('Stop'),
+                  ),
+                ),
+              ],
+            ),
+        ],
       ),
     );
   }

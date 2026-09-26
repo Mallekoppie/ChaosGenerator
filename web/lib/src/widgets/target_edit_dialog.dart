@@ -54,6 +54,7 @@ class _TargetEditDialogState extends State<TargetEditDialog> {
               controller: _name,
               decoration: const InputDecoration(labelText: 'Name'),
             ),
+            const SizedBox(height: 14),
             TextField(
               controller: _address,
               decoration: const InputDecoration(
@@ -61,6 +62,7 @@ class _TargetEditDialogState extends State<TargetEditDialog> {
                 hintText: 'http://localhost:8080',
               ),
             ),
+            const SizedBox(height: 14),
             DropdownButtonFormField<String>(
               initialValue: _protocol,
               decoration: const InputDecoration(labelText: 'Protocol'),
@@ -78,10 +80,12 @@ class _TargetEditDialogState extends State<TargetEditDialog> {
                 }
               },
             ),
+            const SizedBox(height: 14),
             TextField(
               controller: _sni,
               decoration: const InputDecoration(labelText: 'SNI (optional)'),
             ),
+            const SizedBox(height: 6),
             SwitchListTile(
               title: const Text('Connection reuse'),
               value: _connectionReuse,

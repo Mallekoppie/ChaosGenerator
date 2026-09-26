@@ -10,18 +10,20 @@ import 'screens/home_shell.dart';
 import 'screens/login.dart';
 import 'screens/register_user.dart';
 import 'screens/targets_screen.dart';
+import 'screens/telemetry_screen.dart';
 import 'screens/tests_screen.dart';
 import 'screens/use_cases_screen.dart';
 import 'screens/users_screen.dart';
+import 'theme.dart';
 
-class ChaosMasterApp extends StatefulWidget {
-  const ChaosMasterApp({super.key});
+class ChaosProcessorApp extends StatefulWidget {
+  const ChaosProcessorApp({super.key});
 
   @override
-  State<ChaosMasterApp> createState() => _ChaosMasterAppState();
+  State<ChaosProcessorApp> createState() => _ChaosProcessorAppState();
 }
 
-class _ChaosMasterAppState extends State<ChaosMasterApp> {
+class _ChaosProcessorAppState extends State<ChaosProcessorApp> {
   late final TokenStore _tokenStore;
   late final Backend _backend;
   late final AuthService _authService;
@@ -60,9 +62,9 @@ class _ChaosMasterAppState extends State<ChaosMasterApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: 'Chaos Master',
+      title: 'ChaosProcessor',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(colorSchemeSeed: Colors.deepPurple, useMaterial3: true),
+      theme: aetherTheme(),
       builder: (context, child) {
         if (child == null) {
           throw StateError('No child widget provided to MaterialApp.router');
@@ -94,8 +96,18 @@ class _ChaosMasterAppState extends State<ChaosMasterApp> {
             builder: (context, state) => const RegisterUserScreen(),
           ),
           ShellRoute(
-            builder: (context, state, child) => HomeShell(child: child),
+            builder: (context, state, child) =>
+                HomeShell(location: state.uri.path, child: child),
             routes: [
+              GoRoute(
+                path: '/sys-cm',
+                builder: (context, state) => TelemetryScreen(
+                  agents: _agentsRepository,
+                  targets: _targetsRepository,
+                  useCases: _useCasesRepository,
+                  executions: _executionsRepository,
+                ),
+              ),
               GoRoute(
                 path: '/agents',
                 builder: (context, state) =>

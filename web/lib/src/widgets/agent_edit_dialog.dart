@@ -50,20 +50,24 @@ class _AgentEditDialogState extends State<AgentEditDialog> {
               controller: _host,
               decoration: const InputDecoration(labelText: 'Host'),
             ),
+            const SizedBox(height: 14),
             TextField(
               controller: _port,
               decoration: const InputDecoration(labelText: 'Port'),
               keyboardType: TextInputType.number,
             ),
+            const SizedBox(height: 14),
             TextField(
               controller: _metricsPort,
               decoration: const InputDecoration(labelText: 'Metrics port'),
               keyboardType: TextInputType.number,
             ),
+            const SizedBox(height: 14),
             TextField(
               controller: _status,
               decoration: const InputDecoration(labelText: 'Status'),
             ),
+            const SizedBox(height: 6),
             SwitchListTile(
               title: const Text('Enabled'),
               value: _enabled,

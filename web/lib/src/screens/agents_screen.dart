@@ -2,6 +2,12 @@ import 'package:flutter/material.dart';
 
 import '../data/repo.dart';
 import '../generated/generated.dart';
+import '../theme.dart';
+import '../widgets/aether_chrome.dart';
+import '../widgets/aether_common.dart';
+import '../widgets/aether_kpi_card.dart';
+import '../widgets/aether_panel.dart';
+import '../widgets/aether_table.dart';
 import '../widgets/agent_edit_dialog.dart';
 
 class AgentsScreen extends StatefulWidget {
@@ -24,7 +30,9 @@ class _AgentsScreenState extends State<AgentsScreen> {
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _edit(Agent agent) async {
@@ -104,8 +112,10 @@ class _AgentsScreenState extends State<AgentsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Agents'),
+      backgroundColor: Colors.transparent,
+      appBar: aetherAppBar(
+        context,
+        title: 'Agents',
         actions: [
           IconButton(
             tooltip: 'Refresh',
@@ -125,66 +135,136 @@ class _AgentsScreenState extends State<AgentsScreen> {
           final repository = widget.repository;
 
           if (repository.loading && repository.agents.isEmpty) {
-            return const Center(child: CircularProgressIndicator());
+            return const ConsoleLoading();
           }
 
           if (repository.error != null && repository.agents.isEmpty) {
-            return Center(child: Text(repository.error!));
+            return ConsoleMessage(
+              repository.error!,
+              icon: Icons.error_outline,
+              color: AetherPalette.crimson,
+            );
           }
 
-          if (repository.agents.isEmpty) {
-            return const Center(child: Text('No agents are connected'));
-          }
-
-          return SingleChildScrollView(
+          return ListView(
             padding: const EdgeInsets.all(16),
-            child: DataTable(
-              columns: const [
-                DataColumn(label: Text('ID')),
-                DataColumn(label: Text('Host')),
-                DataColumn(label: Text('Port')),
-                DataColumn(label: Text('Metrics')),
-                DataColumn(label: Text('Enabled')),
-                DataColumn(label: Text('Status')),
-                DataColumn(label: Text('Actions')),
-              ],
-              rows: repository.agents
-                  .map(
-                    (agent) => DataRow(
-                      cells: [
-                        DataCell(Text(agent.id)),
-                        DataCell(Text(agent.host)),
-                        DataCell(Text('${agent.port}')),
-                        DataCell(Text('${agent.metricsPort}')),
-                        DataCell(
-                          Icon(
-                            agent.enabled
-                                ? Icons.check_circle
-                                : Icons.cancel_outlined,
-                          ),
-                        ),
-                        DataCell(Text(agent.status)),
-                        DataCell(
-                          Row(
-                            children: [
-                              IconButton(
-                                tooltip: 'Edit',
-                                icon: const Icon(Icons.edit),
-                                onPressed: () => _edit(agent),
-                              ),
-                              IconButton(
-                                tooltip: 'Delete',
-                                icon: const Icon(Icons.delete),
-                                onPressed: () => _delete(agent),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                  .toList(),
-            ),
+            children: [
+              // NOTE: placeholder telemetry. These four readings come from the
+              // PRD and are hard-coded until the master exposes a metrics API.
+              const SectionHeading(
+                label: 'Fleet telemetry',
+                accent: AetherPalette.amber,
+                trailing: StatusPill(
+                  label: 'Placeholder telemetry',
+                  color: AetherPalette.amber,
+                ),
+              ),
+              const SizedBox(height: 12),
+              const KpiDeck(
+                cards: [
+                  KpiCard(
+                    label: 'Total synthetic concurrency',
+                    value: '420,000',
+                    unit: 'req/s',
+                    icon: Icons.speed,
+                    hint: 'fleet-wide egress estimate',
+                  ),
+                  KpiCard(
+                    label: 'gRPC fleet ping',
+                    value: '1.82',
+                    unit: 'ms avg',
+                    icon: Icons.network_check,
+                    accent: AetherPalette.cyanBright,
+                    hint: 'median agent to master',
+                  ),
+                  KpiCard(
+                    label: 'Prometheus scrapes',
+                    value: '100',
+                    unit: '% healthy',
+                    icon: Icons.monitor_heart,
+                    accent: AetherPalette.emeraldBright,
+                    hint: 'scraper targets healthy',
+                  ),
+                  KpiCard(
+                    label: 'Chaos status',
+                    value: 'IDLE',
+                    icon: Icons.bolt,
+                    accent: AetherPalette.amber,
+                    hint: 'no drill in progress',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              AetherPanel(
+                title: 'Agent fleet',
+                padding: EdgeInsets.zero,
+                trailing: TelemetryText(
+                  '${repository.agents.length} registered',
+                  size: 11,
+                  color: AetherPalette.textMuted,
+                ),
+                child: repository.agents.isEmpty
+                    ? const ConsoleMessage(
+                        'No agents are connected',
+                        icon: Icons.dns_outlined,
+                      )
+                    : AetherDataTable(
+                        columns: const [
+                          DataColumn(label: Text('ID')),
+                          DataColumn(label: Text('Host')),
+                          DataColumn(label: Text('Port')),
+                          DataColumn(label: Text('Metrics')),
+                          DataColumn(label: Text('Enabled')),
+                          DataColumn(label: Text('Status')),
+                          DataColumn(label: Text('Actions')),
+                        ],
+                        rows: [
+                          for (final agent in repository.agents)
+                            DataRow(
+                              color: AetherDataTable.rowHighlight,
+                              cells: [
+                                DataCell(
+                                  TelemetryText(
+                                    agent.id,
+                                    size: 12.5,
+                                    color: AetherPalette.cyanBright,
+                                  ),
+                                ),
+                                DataCell(TelemetryText(agent.host, size: 12.5)),
+                                DataCell(TelemetryText('${agent.port}')),
+                                DataCell(TelemetryText('${agent.metricsPort}')),
+                                DataCell(boolCell(agent.enabled)),
+                                DataCell(
+                                  TelemetryText(
+                                    agent.status,
+                                    size: 12.5,
+                                    weight: FontWeight.w600,
+                                    color: statusColor(agent.status),
+                                  ),
+                                ),
+                                DataCell(
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        tooltip: 'Edit',
+                                        icon: const Icon(Icons.edit),
+                                        onPressed: () => _edit(agent),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Delete',
+                                        icon: const Icon(Icons.delete),
+                                        onPressed: () => _delete(agent),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                        ],
+                      ),
+              ),
+            ],
           );
         },
       ),

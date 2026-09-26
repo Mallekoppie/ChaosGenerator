@@ -1,5 +1,5 @@
 name: chaos_master_web
-description: "Chaos Master control panel (Flutter web over gRPC-Web)"
+description: "ChaosProcessor control panel (Flutter web over gRPC-Web)"
 publish_to: 'none'
 
 version: 0.1.0+1
