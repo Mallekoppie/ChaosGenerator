@@ -39,18 +39,24 @@ COPY --from=webbuilder /web/build/web/ ./cmd/master/dist/
 # Build the application
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o chaos-master ./cmd/master
 
+# The distroless runtime has no shell, so every directory the container needs is
+# created here and copied into the runtime stage below.
+RUN mkdir -p /app/data
+
 # --- Runtime stage -----------------------------------------------------------
-FROM alpine:latest
+# distroless: only the static binary and its runtime dependencies (a CA bundle
+# at /etc/ssl/certs, /tmp, /etc/passwd) plus the "nonroot" user (uid 65532).
+# There is no shell, package manager or libc, so Kubernetes probes must use
+# httpGet/tcpSocket and the container cannot be entered with `sh`.
+FROM gcr.io/distroless/static-debian13:nonroot
 
-RUN apk --no-cache add ca-certificates
-
-WORKDIR /root/
+# BoltDB data directory, owned by the non-root user. With a named volume
+# (`docker run -v chaos-master-data:/data`) this ownership is copied into the
+# volume when it is created.
+COPY --from=builder --chown=65532:65532 /app/data /data
 
 # Copy the binary from builder
-COPY --from=builder /app/chaos-master .
-
-# Create directory for database
-RUN mkdir -p /data
+COPY --from=builder /app/chaos-master /chaos-master
 
 # gRPC (agents) and web (gRPC-Web + control panel)
 EXPOSE 9002 8080
@@ -63,4 +69,4 @@ ENV CHAOS_MASTER_DB_PATH=/data/chaos_master.db
 VOLUME ["/data"]
 
 # Run the application
-CMD ["./chaos-master"]
+CMD ["/chaos-master"]

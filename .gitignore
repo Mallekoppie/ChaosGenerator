@@ -47,11 +47,8 @@ chaos_master.db.lock
 certs/*
 bin/*
 
-# Background dev stack (make start / stop)
-.run/
-
-# Local monitoring binaries and data (make monitoring-install / monitoring-up)
-.monitoring/
+# Generated kind manifests (make manifests)
+manifests/generated/
 
 cmd/master/dist/*
 !cmd/master/dist/.gitkeep

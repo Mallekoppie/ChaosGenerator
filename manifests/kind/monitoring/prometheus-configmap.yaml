@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  labels:
+    app: prometheus
+    project: chaos-generator
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+      external_labels:
+        monitor: 'chaos-generator'
+
+    scrape_configs:
+      # Job names and labels are unchanged from the previous host-based setup so
+      # the Grafana dashboards keep working; only the targets moved in-cluster.
+      - job_name: 'target-http-notls'
+        static_configs:
+          - targets: ['target-http.__NAMESPACE__.svc.cluster.local:9090']
+            labels:
+              service: 'target-http'
+              protocol: 'http1'
+              tls: 'false'
+
+      - job_name: 'target-http-tls'
+        static_configs:
+          - targets: ['target-http-tls.__NAMESPACE__.svc.cluster.local:9090']
+            labels:
+              service: 'target-http'
+              protocol: 'http1'
+              tls: 'true'
+
+      - job_name: 'target-http2-tls'
+        static_configs:
+          - targets: ['target-http2.__NAMESPACE__.svc.cluster.local:9090']
+            labels:
+              service: 'target-http'
+              protocol: 'http2'
+              tls: 'true'
+
+      - job_name: 'target-grpc'
+        static_configs:
+          - targets: ['target-grpc.__NAMESPACE__.svc.cluster.local:9090']
+            labels:
+              service: 'target-grpc'
+              protocol: 'grpc'
+
+      # Each agent pod is scraped directly. A headless Service keeps DNS-based
+      # discovery to two lines and needs no RBAC for the Kubernetes API.
+      - job_name: 'chaos-agents'
+        dns_sd_configs:
+          - names: ['chaos-agent-metrics.__NAMESPACE__.svc.cluster.local']
+            type: A
+            port: 9091
+        relabel_configs:
+          - target_label: service
+            replacement: 'chaos-agent'

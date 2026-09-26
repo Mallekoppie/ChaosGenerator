@@ -29,22 +29,24 @@ Generated files land in `lib/src/generated/`:
 
 ## Local development
 
-Run the master with `DEBUG=true` (gRPC-Web only, no embedded assets):
+The master runs in the kind cluster, so forward its port and point the app at it:
 
 ```bash
-make run-master-dev
-```
-
-Then run the app against it:
-
-```bash
+make proxy                                        # web UI + gRPC-Web on 9001
 cd web
 flutter pub get
 flutter run -d chrome --dart-define=CHAOS_MASTER_URL=http://localhost:9001
 ```
 
-When the app is served by the master itself the URL is derived from
-`document.baseUri`, so no `--dart-define` is required.
+When the app is served by the master itself (<http://localhost:9001/>) the URL is
+derived from `document.baseUri`, so no `--dart-define` is required.
+
+To get a rebuilt web app into the cluster, rebuild the images and roll the
+deployments:
+
+```bash
+make kind-images kind-restart
+```
 
 ## Build
 

@@ -235,22 +235,27 @@ You must update them to use the new standardized metric names with `target_type`
 
 To verify metrics are working correctly:
 
-1. **Start the services:**
+1. **Deploy the stack:**
    ```bash
-   make run-full-stack
+   make kind-up
    ```
 
 2. **Check Prometheus targets:**
-   - Open http://localhost:9091/targets
-   - Verify both target-http and target-grpc are UP
+   - `make proxy`, then open http://localhost:9091/targets
+   - Verify `target-http-notls`, `target-http-tls`, `target-http2-tls`,
+     `target-grpc` and `chaos-agents` are UP
 
 3. **Query metrics:**
    ```bash
-   # Check HTTP metrics
-   curl http://localhost:9092/metrics | grep chaos_target_request_duration
+   # Check HTTP metrics (each target exposes metrics on in-cluster port 9090)
+   kubectl -n chaos-testing run curl-http --rm -i --restart=Never \
+     --image=curlimages/curl -- curl -s http://target-http:9090/metrics \
+     | grep chaos_target_request_duration
    
    # Check gRPC metrics  
-   curl http://localhost:9095/metrics | grep chaos_target_request_duration
+   kubectl -n chaos-testing run curl-grpc --rm -i --restart=Never \
+     --image=curlimages/curl -- curl -s http://target-grpc:9090/metrics \
+     | grep chaos_target_request_duration
    ```
 
 4. **Verify labels:**

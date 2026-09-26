@@ -16,6 +16,9 @@ The main purpose is to determine the maximum theoretical through of a service. T
 - `manifests/` - Kubernetes deployment manifests
   - `manifests/server/` - Master server Kubernetes manifests
   - `manifests/agent/` - Agent Kubernetes manifests
+  - `manifests/target-http/` - Target HTTP/HTTPS/HTTP2 Kubernetes manifests
+  - `manifests/kind/` - Self-contained manifests for a local kind cluster
+  - `manifests/generated/` - Rendered manifests produced by `make manifests` (gitignored)
 
 ## Build
 
@@ -61,62 +64,41 @@ make clean
 
 ## Running
 
-### Local Development
+### Run the stack in kind
 
-#### Run the master server
-
-```bash
-make run-master
-```
-
-This builds and starts the ChaosMaster gRPC server on port 9002.
-
-#### Run a single agent
+The whole system runs in a local kind cluster. There are no local run targets:
 
 ```bash
-make run-agent
+make kind-up     # create the cluster, build/load the images, deploy everything
+make proxy       # web UI, Prometheus and Grafana on your machine
 ```
 
-This builds and starts a ChaosAgent that connects to the master at localhost:9002.
+`make kind-up` and the proxy targets must run on the **host**: kind spawns
+privileged containers, which does not work inside the dev container. The dev
+container remains the place to build, test and run `make manifests`.
 
-#### Run the full local stack in the background
+| Local port | Forwards to | Override with |
+|------------|-------------|---------------|
+| 9001 | master web UI / gRPC-Web | `WEB_UI_PORT` |
+| 9091 | Prometheus | `PROMETHEUS_PORT` |
+| 3000 | Grafana (admin/admin) | `GRAFANA_PORT` |
+| 9002 | master gRPC (only with `make proxy-grpc`) | `GRPC_PORT` |
 
-```bash
-make start
-```
-
-Builds everything, generates certificates and starts the master, `AGENT_COUNT`
-(default 2) agents and the target services in the background. Each process logs
-to `.run/<name>.log`, and the command prints a per-service status table and the
-web UI URL.
-
-```bash
-make status    # what is running and on which ports
-make logs      # follow the background logs
-make stop      # stop everything
-make restart   # stop then start again
-```
-
-Default ports (override on the command line, for example
-`make start TARGET_HTTP_PORT=8085 MASTER_WEB_ADDR=0.0.0.0:9100`):
-
-| Service | Default |
-|---------|---------|
-| Master gRPC | 9002 |
-| Master web UI / gRPC-Web | 9001 |
-| Target HTTP | 8080 |
-| Target HTTPS | 8443 |
-| Target HTTP/2 | 8444 |
-| Target gRPC | 9000 |
+The web UI port is a variable because 8080 is often already taken on a
+workstation. Inside the cluster the master still listens on 8080.
 
 ### Run the test client
 
+`make all` still builds `bin/chaos-client`, but there is no run target for it.
+Forward the master gRPC port and point the client at it:
+
 ```bash
-make run-client
+make proxy-grpc
+CHAOS_MASTER_ADDRESS=localhost:9002 ./bin/chaos-client
 ```
 
-This builds and starts the interactive test client. It needs a master that is
-already running (`make start`, or `make run-master` in another terminal).
+The client defaults to `127.0.0.1:9002`, so with `make proxy-grpc` running, plain
+`./bin/chaos-client` works without any environment variable.
 
 ## Web Control Panel
 
@@ -153,56 +135,54 @@ rather than running without a web UI.
 > `cmd/master/main.go` — the Flutter app and the defaults are compiled into the
 > binary.
 
-### Run locally
+### Open the panel
 
 ```bash
-# Start the master (native gRPC on 9002, web + gRPC-Web on 9001)
-make master
-./bin/chaos-master
-# open http://localhost:9001/
+make proxy       # then open http://localhost:9001/
 ```
 
-The first user is created from the **Register** screen using the registration
-secret (`CHAOS_REGISTER_SECRET`, default `chaos-dev-secret` for development).
-The JWT signing key is configured with `CHAOS_JWT_SIGNING_KEY`.
+The container image sets `CHAOS_MASTER_WEB_ADDRESS` to `0.0.0.0:8080`, so in the
+cluster the panel listens on 8080 and `make proxy` maps it onto your local
+`WEB_UI_PORT` (9001 by default).
 
-For Flutter hot reload during development, run the master with gRPC-Web only and
-point the app at it:
+The first user is created from the **Register** screen using the registration
+secret. Read it from the cluster with:
 
 ```bash
-make run-master-dev
+kubectl -n chaos-testing get secret chaos-master-secrets \
+  -o jsonpath='{.data.registerSecret}' | base64 -d
+```
+
+`CHAOS_REGISTER_SECRET` defaults to `chaos-dev-secret` for development, and the
+JWT signing key is configured with `CHAOS_JWT_SIGNING_KEY`.
+
+For Flutter work, run the app locally against the cluster:
+
+```bash
+make proto-dart
+make proxy                                        # web UI + gRPC-Web on 9001
 cd web && flutter run -d chrome --dart-define=CHAOS_MASTER_URL=http://localhost:9001
 ```
 
-### Kubernetes
-
-```bash
-kubectl port-forward svc/chaos-master-service 8080:8080
-# open http://localhost:8080/
-```
-
-See [KUBERNETES.md](KUBERNETES.md) for details.
+See [web/README.md](web/README.md) for details.
 
 ## Monitoring
 
-Prometheus and Grafana come up with a single command:
+Prometheus and Grafana run inside the cluster and come up with everything else:
 
 ```bash
-make monitoring-up
+make proxy       # Prometheus on 9091, Grafana on 3000
 ```
-
-- If a Docker daemon is reachable it runs `docker-compose-monitoring.yml`.
-- Otherwise it downloads Prometheus and Grafana into `.monitoring/` and runs them
-  as background processes (useful inside dev containers where Docker can't run).
 
 | Service | URL | Login |
 |---------|-----|-------|
 | Prometheus | http://localhost:9091 | - |
 | Grafana | http://localhost:3000 | admin/admin |
 
-Override the ports with `PROMETHEUS_PORT` / `GRAFANA_PORT` if they are taken.
-`make run-full-stack` starts the services and monitoring together; `make monitoring-down`
-stops monitoring only. See [monitoring/README.md](monitoring/README.md) for details.
+Override the local ports with `PROMETHEUS_PORT` / `GRAFANA_PORT` if they are
+taken. Prometheus scrapes the target variants and every agent pod using the same
+job names and labels as before, so the provisioned dashboards keep working. See
+[monitoring/README.md](monitoring/README.md) for details.
 
 ## Configuration
 
@@ -216,12 +196,6 @@ Agents read configuration from environment variables with fallback to local deve
 | `CHAOS_AGENT_PORT` | `9001` | Agent port (for future use) |
 | `CHAOS_AGENT_METRICS_PORT` | `9091` | Metrics port |
 | `CHAOS_AGENT_VERSION` | `2.0.0` | Agent version |
-
-#### Local Development
-Simply run the agent - it will use default values:
-```bash
-make run-agent
-```
 
 #### Kubernetes Deployment
 Set environment variables in your deployment:
@@ -253,6 +227,29 @@ kubectl scale deployment/chaos-agent --replicas=10
 ```
 
 📚 See [KUBERNETES.md](KUBERNETES.md) for a complete step-by-step guide.
+
+### Local kind cluster
+
+This is the supported way to run the stack (`kubectl apply -k` above expects
+images in a registry; the kind flow loads locally built images instead):
+
+```bash
+# kind needs podman/docker, so run these on the host
+make kind-up        # create cluster + build/load images + deploy everything
+make proxy          # web UI (9001), Prometheus (9091), Grafana (3000)
+make kind-status    # deployments, pods and services
+make kind-logs      # master, agent and target logs
+make kind-verify    # agents that registered with the master
+make kind-restart   # roll the deployments after rebuilding images
+make kind-down      # remove the Chaos resources, keep the cluster
+make kind-clean     # delete the cluster and manifests/generated
+```
+
+`make manifests` renders `manifests/kind/` into `manifests/generated/` with the
+image names and tags produced by `make docker-build`. Point a test at
+`http://target-http.chaos-testing.svc.cluster.local:8080`, or at the TLS, HTTP/2
+and gRPC variants documented in
+[manifests/kind/README.md](manifests/kind/README.md).
 
 ## Architecture
 

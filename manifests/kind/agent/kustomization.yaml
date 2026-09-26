@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: chaos-testing
+
+resources:
+  - deployment.yaml
+  # Headless Service used by Prometheus to discover every agent pod.
+  - service.yaml
+
+# Repeated in every sub-kustomization so each rendered file (kind-server.yaml,
+# kind-agent.yaml, ...) is correct on its own, not just inside kind-all.yaml.
+images:
+  - name: chaos-agent
+    newName: __REGISTRY__chaos-agent
+    newTag: __IMAGE_TAG__
+
+replicas:
+  - name: chaos-agent
+    count: 2

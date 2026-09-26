@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: target-grpc
+  labels:
+    app: target-grpc
+    project: chaos-generator
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9000
+    targetPort: 9000
+    protocol: TCP
+    name: grpc
+  - port: 9090
+    targetPort: 9090
+    protocol: TCP
+    name: metrics
+  selector:
+    app: target-grpc

@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: chaos-testing
+
+resources:
+  - service.yaml
+  - deployment.yaml
+  # TLS and HTTP/2 variants of the same image, plus the gRPC target.
+  - service-tls.yaml
+  - deployment-tls.yaml
+  - service-http2.yaml
+  - deployment-http2.yaml
+  - service-grpc.yaml
+  - deployment-grpc.yaml
+
+# Repeated in every sub-kustomization so each rendered file (kind-server.yaml,
+# kind-agent.yaml, ...) is correct on its own, not just inside kind-all.yaml.
+images:
+  - name: target-http
+    newName: __REGISTRY__target-http
+    newTag: __IMAGE_TAG__
+  - name: target-grpc
+    newName: __REGISTRY__target-grpc
+    newTag: __IMAGE_TAG__

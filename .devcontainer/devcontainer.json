@@ -1,0 +1,100 @@
+{
+    
+    
+    // ChaosGenerator development container.
+    //
+    // Provides the full toolchain needed to edit, build, test and inspect this
+    // repository: Go, protoc + plugins, the Dart/Flutter SDK for the web control
+    // panel, kubectl/kind/helm, and the usual shell tooling (make, curl, jq...).
+    //
+    // Engine: Podman on the host (rootless). The host's podman socket is mounted
+    // in so `podman`/`docker` commands inside the container drive the host
+    // engine. `kind` itself cannot run inside a container - run the kind targets
+    // and `make proxy` in a host terminal (the Makefile tells you when needed).
+    "name": "ChaosGenerator Dev",
+
+    // Build from our own Dockerfile so the toolchain is pinned and reproducible.
+    "build": {
+        "dockerfile": "Dockerfile",
+        "context": "..",
+        "args": {
+            "GO_VERSION": "1.26",
+            "FLUTTER_CHANNEL": "stable"
+        }
+    },
+
+    // The remote user created by the base image. Keep the workspace owned by it.
+    "remoteUser": "vscode",
+    "containerUser": "vscode",
+
+    // --userns=keep-id makes the container's uid 1000 match the host uid 1000.
+    // The host owns the bind-mounted workspace and the podman socket (both uid
+    // 1000, socket mode 0660), so this is what lets the container read/write the
+    // repo with the right ownership AND open the mounted podman socket.
+    "runArgs": [
+        "--userns=keep-id",
+        "--security-opt=label=disable"
+    ],
+
+    // Mount the host podman socket so the container can talk to the host engine.
+    // On Bazzite the rootless socket lives at /run/user/1000/podman/podman.sock.
+    "mounts": [
+        "source=/run/user/1000/podman/podman.sock,target=/run/host-podman.sock,type=bind"
+    ],
+
+    // Make the mounted socket discoverable by podman/docker clients in the
+    // container. DOCKER_HOST is what the VS Code container tooling and any
+    // `docker`-invoking script read.
+    "containerEnv": {
+        "DOCKER_HOST": "unix:///run/host-podman.sock",
+        "CONTAINER_HOST": "unix:///run/host-podman.sock",
+        "PODMAN_HOST": "unix:///run/host-podman.sock",
+        "GOFLAGS": "-mod=mod",
+        "PUB_CACHE": "/home/vscode/.pub-cache",
+        "PATH": "/go/bin:/home/vscode/.pub-cache/bin:/opt/flutter/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    },
+
+    // Local ports that `make proxy` forwards from the kind cluster. Override
+    // them with WEB_UI_PORT / PROMETHEUS_PORT / GRAFANA_PORT; keep these values in
+    // step with the Makefile defaults.
+    "forwardPorts": [
+        9001, // master web UI / gRPC-Web
+        9091, // Prometheus
+        3000  // Grafana
+    ],
+    "portsAttributes": {
+        "9001": { "label": "master web UI" },
+        "9091": { "label": "Prometheus" },
+        "3000": { "label": "Grafana" }
+    },
+
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "golang.go",
+                "ms-vscode.makefile-tools",
+                "Dart-Code.dart-code",
+                "Dart-Code.flutter",
+                "redhat.vscode-yaml",
+                "ms-kubernetes-tools.vscode-kubernetes-tools",
+                "zxh404.vscode-proto3",
+                "timonwong.shellcheck"
+            ],
+            "settings": {
+                "go.toolsManagement.autoUpdate": true,
+                "go.useLanguageServer": true,
+                "dart.flutterSdkPath": "/opt/flutter",
+                "terminal.integrated.defaultProfile.linux": "bash",
+                "files.trimTrailingWhitespace": true
+            }
+        }
+    },
+
+    "postCreateCommand": "bash .devcontainer/post-create.sh",
+
+    "remoteEnv": {
+        "PUB_CACHE": "/home/vscode/.pub-cache",
+        "PATH": "/go/bin:/home/vscode/.pub-cache/bin:/opt/flutter/bin:${containerEnv:PATH}"
+    }
+}
+

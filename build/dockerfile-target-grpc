@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.21-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 WORKDIR /app
 
@@ -14,14 +14,12 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o target-grpc ./cmd/target-grpc
 
 # Runtime stage
-FROM alpine:latest
-
-RUN apk --no-cache add ca-certificates
-
-WORKDIR /root/
+# distroless: static binary plus a CA bundle and the "nonroot" user (uid 65532).
+# No shell, so Kubernetes probes must use tcpSocket/grpc, not `exec`.
+FROM gcr.io/distroless/static-debian13:nonroot
 
 # Copy the binary from builder
-COPY --from=builder /app/target-grpc .
+COPY --from=builder /app/target-grpc /target-grpc
 
 # Expose ports
 EXPOSE 9000 9090
@@ -31,4 +29,4 @@ ENV CHAOS_TARGET_PORT=9000
 ENV CHAOS_TARGET_METRICS_PORT=9090
 
 # Run the application
-CMD ["./target-grpc"]
+CMD ["/target-grpc"]

@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: target-grpc
+  labels:
+    app: target-grpc
+    project: chaos-generator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: target-grpc
+  template:
+    metadata:
+      labels:
+        app: target-grpc
+        project: chaos-generator
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: target-grpc
+        image: target-grpc:latest
+        # `make kind-images` loads the locally built image into the node. Without
+        # IfNotPresent the injected ":latest" tag defaults to Always, which makes
+        # the kubelet try (and fail) to pull target-grpc from a registry.
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 9000
+          name: grpc
+          protocol: TCP
+        - containerPort: 9090
+          name: metrics
+          protocol: TCP
+        env:
+        - name: CHAOS_TARGET_PORT
+          value: "9000"
+        - name: CHAOS_TARGET_METRICS_PORT
+          value: "9090"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        # The image is distroless and runs a gRPC server, so the probes are plain
+        # TCP checks against the server port.
+        livenessProbe:
+          tcpSocket:
+            port: 9000
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          tcpSocket:
+            port: 9000
+          initialDelaySeconds: 5
+          periodSeconds: 10
