@@ -39,6 +39,33 @@ type AgentConnection struct {
 	sendMu sync.Mutex
 	// cancel terminates the ConnectAgent handler that owns this connection.
 	cancel context.CancelFunc
+
+	// resourceMu guards the latest process-level CPU/memory reading reported by
+	// the agent. Reports arrive on the stream handler goroutine while the UI
+	// reads them from a separate gRPC handler.
+	resourceMu     sync.RWMutex
+	cpuPercent     float64
+	memoryBytes    int64
+	lastResourceAt time.Time
+}
+
+// recordResources stores the latest resource reading for the agent.
+func (c *AgentConnection) recordResources(cpuPercent float64, memoryBytes int64, at time.Time) {
+	c.resourceMu.Lock()
+	defer c.resourceMu.Unlock()
+
+	c.cpuPercent = cpuPercent
+	c.memoryBytes = memoryBytes
+	c.lastResourceAt = at
+}
+
+// Resources returns the latest CPU/memory reading and when it was taken. The
+// timestamp is zero until the agent has reported once.
+func (c *AgentConnection) Resources() (cpuPercent float64, memoryBytes int64, at time.Time) {
+	c.resourceMu.RLock()
+	defer c.resourceMu.RUnlock()
+
+	return c.cpuPercent, c.memoryBytes, c.lastResourceAt
 }
 
 // send writes a command to the agent, serialising concurrent writers. The write
@@ -177,6 +204,17 @@ func (cm *ConnectionManager) TouchHeartbeat(agentId string, at time.Time) {
 	if conn, ok := cm.connections[agentId]; ok {
 		conn.LastHeartbeat = at
 	}
+}
+
+// RecordAgentResources stores the latest CPU/memory reading for an agent. It is
+// a no-op when the connection has already gone away.
+func (cm *ConnectionManager) RecordAgentResources(agentId string, cpuPercent float64, memoryBytes int64, at time.Time) {
+	conn, ok := cm.GetConnection(agentId)
+	if !ok {
+		return
+	}
+
+	conn.recordResources(cpuPercent, memoryBytes, at)
 }
 
 // ReapStaleConnections drops connections that have not sent a heartbeat within
@@ -389,6 +427,10 @@ func handleAgentMessage(agentId string, msg *pb.AgentMessage, cm *ConnectionMana
 		// skewed agent clock cannot mask a dead connection.
 		cm.TouchHeartbeat(agentId, time.Now())
 
+		if payload.Heartbeat != nil {
+			cm.RecordAgentResources(agentId, payload.Heartbeat.CpuPercent, payload.Heartbeat.MemoryBytes, time.Now())
+		}
+
 	case *pb.AgentMessage_Response:
 		if payload.Response == nil {
 			return
@@ -414,6 +456,10 @@ func handleAgentMessage(agentId string, msg *pb.AgentMessage, cm *ConnectionMana
 		// Telemetry ingest is intentionally quiet: it arrives about once a
 		// second per running test and would otherwise dominate the logs.
 		GetTestMetricsStore().Ingest(agentId, payload.MetricsReport)
+
+		// Keep the latest resource reading so the telemetry view can show agent
+		// CPU/memory at the finer rate reports are sent during a run.
+		cm.RecordAgentResources(agentId, payload.MetricsReport.CpuPercent, payload.MetricsReport.MemoryBytes, time.Now())
 
 	default:
 		platform.Log.Warn("Unknown message type from agent", zap.String("agentId", agentId))

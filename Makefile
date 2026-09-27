@@ -21,6 +21,9 @@
 #   make kind-status            Deployments, pods, services and PVCs
 #   make kind-verify            Agents that registered with the master
 #   make kind-logs              Master, agent and target logs
+#   make kind-images            Build every image and load it into the cluster
+#   make kind-load              Load the built images into the cluster
+#   make kind-reload            Rebuild the server/agent, load and roll them
 #   make kind-restart           Roll the deployments (pick up freshly loaded images)
 #   make kind-down              Remove the Chaos resources, keep the cluster
 #   make kind-delete            Delete the kind cluster
@@ -303,9 +306,9 @@ kind-secrets: generate-certs kind-namespace
 	@echo "Applied secret $(KIND_NAMESPACE)/target-tls"
 
 # --- Manifests --------------------------------------------------------------
-.PHONY: manifests kind-preflight kind-create kind-namespace kind-images kind-deploy \
-        kind-verify kind-up kind-status kind-logs kind-restart kind-down kind-delete \
-        kind-clean
+.PHONY: manifests kind-preflight kind-create kind-namespace kind-images kind-load \
+        kind-reload kind-deploy kind-verify kind-up kind-status kind-logs \
+        kind-restart kind-down kind-delete kind-clean
 
 # Render manifests/kind into manifests/generated using the image names and tags
 # that `make docker-build` produces. Needs no cluster, so it also runs inside the
@@ -342,7 +345,9 @@ manifests:
 	@ls -1 $(GENERATED_DIR)/kind-*.yaml | sed 's|^|  |'
 
 kind-preflight:
-	$(call require_host,kind-up)
+	@# Report the goal the user actually typed so the host guard prints a command
+	@# that exists (`make kind-reload`, not `make kind-up`).
+	$(call require_host,$(or $(MAKECMDGOALS),kind-up))
 	@command -v $(KIND) >/dev/null 2>&1 || { \
 		echo "$(KIND) not found - install it on the host (https://kind.sigs.k8s.io/)."; exit 1; }
 	@command -v $(KUBECTL) >/dev/null 2>&1 || { \
@@ -369,12 +374,17 @@ kind-namespace: kind-create
 		--dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null
 	@echo "Namespace $(KIND_NAMESPACE) is ready."
 
-# Build the images kind deploys and load them into the node, so the pods never
-# need a registry.
-kind-images: kind-preflight
-	@echo "Building images with $(CONTAINER_ENGINE)..."
-	@$(MAKE) --no-print-directory docker-build DOCKER=$(CONTAINER_ENGINE)
-	@for image in $(KIND_IMAGES); do \
+# Images copied into the node by kind-load. It defaults to everything
+# docker-build produces, and kind-reload narrows it to the images it just
+# rebuilt.
+KIND_LOAD_IMAGES ?= $(KIND_IMAGES)
+
+# Copy the images named by KIND_LOAD_IMAGES into the kind node, so the pods never
+# need a registry. Docker hands the image straight to kind; podman has to export
+# a docker-format archive first because `kind load docker-image` talks to the
+# docker daemon.
+kind-load: kind-preflight
+	@for image in $(KIND_LOAD_IMAGES); do \
 		echo "Loading $$image into kind cluster '$(KIND_CLUSTER)'..."; \
 		if [ "$(CONTAINER_ENGINE)" = "docker" ]; then \
 			$(KIND_ENV) $(KIND) load docker-image --name $(KIND_CLUSTER) $$image; \
@@ -385,7 +395,13 @@ kind-images: kind-preflight
 			rm -rf $$tmp; \
 		fi; \
 	done
-	@echo "Images loaded into kind cluster '$(KIND_CLUSTER)'."
+	@echo "Loaded $(words $(KIND_LOAD_IMAGES)) image(s) into kind cluster '$(KIND_CLUSTER)'."
+
+# Build the images kind deploys and load them into the node.
+kind-images: kind-preflight
+	@echo "Building images with $(CONTAINER_ENGINE)..."
+	@$(MAKE) --no-print-directory docker-build DOCKER=$(CONTAINER_ENGINE)
+	@$(MAKE) --no-print-directory kind-load
 
 # The namespace is created first (idempotently), then the master is applied and
 # allowed to become ready before the agents, so the agents do not crash-loop
@@ -445,6 +461,34 @@ kind-restart:
 		$(KUBECTL) -n $(KIND_NAMESPACE) rollout status deployment/$$d --timeout=180s; \
 	done
 	@echo "Rolled out the Chaos stack."
+
+# Rebuild the server and agent images, load them into the node and roll their
+# pods. This is the fast inner loop for control-plane work: unlike kind-up it
+# never rebuilds or restarts the targets or the monitoring stack.
+#
+# RELOAD_COMPONENTS maps a build component onto the deployments that run it, so
+# the set can be widened when a change spans more of the stack:
+#   make kind-reload RELOAD_COMPONENTS="master agent target-http target-grpc"
+RELOAD_COMPONENTS ?= master agent
+
+DEPLOYMENTS_master      := chaos-master
+DEPLOYMENTS_agent       := chaos-agent
+DEPLOYMENTS_target-http := target-http target-http-tls target-http2
+DEPLOYMENTS_target-grpc := target-grpc
+
+RELOAD_IMAGES      := $(foreach c,$(RELOAD_COMPONENTS),$(REGISTRY)$(IMAGE_NAME_$(c)):$(IMAGE_TAG))
+RELOAD_DEPLOYMENTS := $(foreach c,$(RELOAD_COMPONENTS),$(DEPLOYMENTS_$(c)))
+
+kind-reload: kind-preflight
+	@echo "Building $(RELOAD_COMPONENTS) with $(CONTAINER_ENGINE)..."
+	@$(MAKE) --no-print-directory $(addprefix docker-build-,$(RELOAD_COMPONENTS)) DOCKER=$(CONTAINER_ENGINE)
+	@$(MAKE) --no-print-directory kind-load KIND_LOAD_IMAGES="$(RELOAD_IMAGES)"
+	@echo "Rolling $(RELOAD_DEPLOYMENTS)..."
+	@$(KUBECTL) -n $(KIND_NAMESPACE) rollout restart $(addprefix deployment/,$(RELOAD_DEPLOYMENTS))
+	@for d in $(RELOAD_DEPLOYMENTS); do \
+		$(KUBECTL) -n $(KIND_NAMESPACE) rollout status deployment/$$d --timeout=180s; \
+	done
+	@echo "Reloaded $(RELOAD_COMPONENTS) into kind cluster '$(KIND_CLUSTER)'."
 
 kind-down:
 	$(call require_host,kind-down)

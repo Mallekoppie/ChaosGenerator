@@ -35,6 +35,7 @@ class _ChaosProcessorAppState extends State<ChaosProcessorApp> {
   late final TestMetricsRepository _testMetricsRepository;
   late final HistoryRepository _historyRepository;
   late final UsersRepository _usersRepository;
+  late final SystemTelemetryRepository _systemTelemetryRepository;
 
   @override
   void initState() {
@@ -51,6 +52,7 @@ class _ChaosProcessorAppState extends State<ChaosProcessorApp> {
     _testMetricsRepository = TestMetricsRepository(backend: _backend);
     _historyRepository = HistoryRepository(backend: _backend);
     _usersRepository = UsersRepository(backend: _backend);
+    _systemTelemetryRepository = SystemTelemetryRepository(backend: _backend);
   }
 
   @override
@@ -62,6 +64,7 @@ class _ChaosProcessorAppState extends State<ChaosProcessorApp> {
     _testMetricsRepository.dispose();
     _historyRepository.dispose();
     _usersRepository.dispose();
+    _systemTelemetryRepository.dispose();
     _backend.shutdown();
     super.dispose();
   }
@@ -113,6 +116,7 @@ class _ChaosProcessorAppState extends State<ChaosProcessorApp> {
                   targets: _targetsRepository,
                   useCases: _useCasesRepository,
                   executions: _executionsRepository,
+                  telemetry: _systemTelemetryRepository,
                 ),
               ),
               GoRoute(

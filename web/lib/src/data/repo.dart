@@ -470,3 +470,104 @@ class HistoryRepository extends ChangeNotifier {
     super.dispose();
   }
 }
+
+/// One server resource reading retained for the trend sparklines.
+class ServerResourceSample {
+  const ServerResourceSample({
+    required this.timestamp,
+    required this.cpuPercent,
+    required this.memoryBytes,
+  });
+
+  final DateTime timestamp;
+  final double cpuPercent;
+  final int memoryBytes;
+}
+
+/// Loads the resource footprint of the control plane and the connected agent
+/// fleet so operators can watch CPU and memory as a run scales out.
+///
+/// The server reading comes from the master process itself; each agent reading
+/// is the latest value the agent reported on its heartbeat (or, during a run, on
+/// its once-per-second metrics report).
+///
+/// Every server reading is also appended to [serverHistory], a bounded rolling
+/// window that backs the trend sparklines on the SYS-CM screen.
+class SystemTelemetryRepository extends ChangeNotifier {
+  /// Number of server readings retained. At the 3 second poll cadence this is a
+  /// 30 minute window, enough to watch memory climb through a long run.
+  static const int historyLimit = 600;
+
+  final Backend backend;
+
+  SystemTelemetryRepository({required this.backend});
+
+  GetSystemTelemetryResponse? telemetry;
+  bool loading = false;
+  String? error;
+  Timer? _timer;
+
+  /// Rolling server readings, oldest first, capped at [historyLimit].
+  final List<ServerResourceSample> serverHistory = [];
+
+  ResourceUsage? get server => telemetry?.server;
+  List<AgentResourceUsage> get agents => telemetry?.agents ?? const [];
+
+  Future<void> load() async {
+    loading = true;
+    notifyListeners();
+
+    try {
+      final result = await backend.master.getSystemTelemetry(
+        GetSystemTelemetryRequest(),
+      );
+      telemetry = result;
+      error = null;
+      _recordServerSample(result.server);
+    } on GrpcError catch (e) {
+      backend.handleError(e);
+      error = e.message ?? 'Failed to load system telemetry';
+    } catch (e) {
+      error = 'Failed to load system telemetry: $e';
+    } finally {
+      loading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Appends a server reading to the rolling history, trimming the oldest once
+  /// the window is full.
+  void _recordServerSample(ResourceUsage? server) {
+    if (server == null) {
+      return;
+    }
+
+    serverHistory.add(
+      ServerResourceSample(
+        timestamp: DateTime.now(),
+        cpuPercent: server.cpuPercent,
+        memoryBytes: server.memoryBytes.toInt(),
+      ),
+    );
+
+    if (serverHistory.length > historyLimit) {
+      serverHistory.removeRange(0, serverHistory.length - historyLimit);
+    }
+  }
+
+  /// Refreshes the telemetry every [interval] until [stopPolling] is called.
+  void startPolling({Duration interval = const Duration(seconds: 3)}) {
+    _timer ??= Timer.periodic(interval, (_) => load());
+  }
+
+  void stopPolling() {
+    _timer?.cancel();
+    _timer = null;
+  }
+
+  @override
+  void dispose() {
+    stopPolling();
+    super.dispose();
+  }
+}

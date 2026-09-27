@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -533,6 +534,63 @@ func (s *ChaosMasterServer) GetTestHistory(ctx context.Context, req *contracts.G
 	runs := GetTestMetricsStore().History(int(req.Limit))
 
 	return &contracts.GetTestHistoryResponse{Runs: runs}, nil
+}
+
+// GetSystemTelemetry reports the resource footprint of the control plane and of
+// the connected agent fleet, so operators can watch memory as a run scales out.
+func (s *ChaosMasterServer) GetSystemTelemetry(ctx context.Context, req *contracts.GetSystemTelemetryRequest) (*contracts.GetSystemTelemetryResponse, error) {
+	usage := serverResourceUsage()
+
+	agents, err := logic.GetAllAgents()
+	if err != nil {
+		platform.Log.Error("Error getting agents for system telemetry", zap.Error(err))
+		return nil, status.Errorf(codes.Internal, "failed to get agents: %v", err)
+	}
+
+	connMgr := GetConnectionManager()
+	pbAgents := make([]*contracts.AgentResourceUsage, 0, len(agents))
+	for _, agent := range agents {
+		conn, ok := connMgr.GetConnection(agent.Id)
+		if !ok {
+			continue
+		}
+
+		cpuPercent, memoryBytes, at := conn.Resources()
+
+		var lastReportMs int64
+		if !at.IsZero() {
+			lastReportMs = at.UnixMilli()
+		}
+
+		pbAgents = append(pbAgents, &contracts.AgentResourceUsage{
+			AgentId:      agent.Id,
+			Host:         agent.Host,
+			Online:       true,
+			CpuPercent:   cpuPercent,
+			MemoryBytes:  memoryBytes,
+			LastReportMs: lastReportMs,
+		})
+	}
+
+	// Stable ordering keeps the fleet table from reshuffling on every poll.
+	sort.Slice(pbAgents, func(i, j int) bool {
+		if pbAgents[i].Host == pbAgents[j].Host {
+			return pbAgents[i].AgentId < pbAgents[j].AgentId
+		}
+		return pbAgents[i].Host < pbAgents[j].Host
+	})
+
+	return &contracts.GetSystemTelemetryResponse{
+		Server: &contracts.ResourceUsage{
+			CpuPercent:    usage.CPUPercent,
+			MemoryBytes:   usage.MemoryBytes,
+			Goroutines:    usage.Goroutines,
+			UptimeSeconds: usage.UptimeSeconds,
+		},
+		Agents:      pbAgents,
+		AgentCount:  int32(len(pbAgents)),
+		TimestampMs: time.Now().UnixMilli(),
+	}, nil
 }
 
 // Helper functions

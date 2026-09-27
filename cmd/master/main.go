@@ -77,6 +77,10 @@ func main() {
 	}
 	service.StartConnectionMonitor(context.Background())
 
+	// Sample the master process on a fixed interval so the telemetry view can
+	// show control-plane CPU and memory alongside the agent fleet.
+	service.StartServerResourceSampler(context.Background())
+
 	services := []platform.GRPCService{
 		&service.ChaosMasterServer{},
 		&service.AuthServer{},

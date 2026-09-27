@@ -200,6 +200,25 @@ BoltDB so it survives a master restart. The master keeps the most recent
 `CHAOS_MASTER_HISTORY_LIMIT` (default `50`) finished runs; older runs are evicted
 from both memory and the database.
 
+### System resource telemetry
+
+The **SYS-CM** screen polls `GetSystemTelemetry` every 3 seconds to show the
+resource footprint of the control plane and of the agent fleet, so memory can be
+watched as a run scales out:
+
+- **Server resources** (shown first) — the master process CPU, resident memory,
+  live goroutine count and uptime. The master samples its own process on a
+  3 second interval so every reading covers a comparable window. A rolling
+  30 minute window of readings backs inline sparklines on the CPU and memory
+  cards, and the memory card also reports the exact change across that window
+  (for example `+42 MiB over 12m`), which is the quickest way to spot the master
+  growing as a run scales out.
+- **Agent resources** — per-agent CPU and memory. Agents sample their process in
+  the heartbeat loop (every 10s), which keeps the reading live while idle, and
+  again in the once-per-second metrics reports during a run. The master keeps the
+  latest reading per connection and serves it to the UI; the `Last report` column
+  shows how fresh each reading is.
+
 ### Test history and report export
 
 The **Tests** screen shows a **Recent runs** panel listing finished executions

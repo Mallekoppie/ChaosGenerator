@@ -30,6 +30,10 @@ const (
 // measurement window instead of resetting with each new Client.
 var agentProcessSampler = NewProcessSampler()
 
+// agentHeartbeatSampler is dedicated to the slower heartbeat loop so its CPU
+// window is not shortened by the once-per-second metrics sampling.
+var agentHeartbeatSampler = NewProcessSampler()
+
 // Client represents an agent client that connects to the master
 type Client struct {
 	masterAddress string
@@ -87,13 +91,19 @@ func (c *Client) ConnectAndServe(ctx context.Context) error {
 	return c.receiveCommands(ctx, stream)
 }
 
-// heartbeatMessage builds a heartbeat for this agent.
+// heartbeatMessage builds a heartbeat for this agent, enriched with the
+// process-level CPU and memory reading so the control plane can show agent
+// resource usage even while no test is running.
 func (c *Client) heartbeatMessage() *pb.AgentMessage {
+	cpuPercent, memoryBytes := agentHeartbeatSampler.Sample()
+
 	return &pb.AgentMessage{
 		AgentId: c.agentId,
 		Payload: &pb.AgentMessage_Heartbeat{
 			Heartbeat: &pb.AgentHeartbeat{
-				Timestamp: time.Now().Unix(),
+				Timestamp:   time.Now().Unix(),
+				CpuPercent:  cpuPercent,
+				MemoryBytes: memoryBytes,
 			},
 		},
 	}

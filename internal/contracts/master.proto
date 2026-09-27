@@ -32,6 +32,9 @@ service ChaosMaster {
 
     // Test history operations
     rpc GetTestHistory(GetTestHistoryRequest) returns (GetTestHistoryResponse) {}
+
+    // Resource telemetry for the master process and the connected agent fleet.
+    rpc GetSystemTelemetry(GetSystemTelemetryRequest) returns (GetSystemTelemetryResponse) {}
 }
 
 // Agent messages
@@ -99,6 +102,11 @@ message AgentMessage {
 
 message AgentHeartbeat {
     int64 timestamp = 1;
+    // Process-level resource telemetry. Sampling the heartbeat lets the control
+    // plane show per-agent CPU and memory even while no test is running, which
+    // is when the metrics report stream is silent.
+    double cpuPercent = 2;
+    int64 memoryBytes = 3;
 }
 
 message AgentCommand {
@@ -433,4 +441,37 @@ message TestRunSummary {
 
 message GetTestHistoryResponse {
     repeated TestRunSummary runs = 1;
+}
+
+// Resource telemetry messages (master -> UI). These describe the resource
+// footprint of the control plane itself and of the agent fleet, so operators
+// can watch memory as a run scales out.
+
+// ResourceUsage is the process-level resource footprint of one node.
+message ResourceUsage {
+    double cpuPercent = 1; // CPU consumed since the previous sample
+    int64 memoryBytes = 2; // resident set size
+    int32 goroutines = 3;  // runtime goroutines (server only, zero otherwise)
+    int64 uptimeSeconds = 4;
+}
+
+// AgentResourceUsage is the latest resource reading reported by one agent.
+message AgentResourceUsage {
+    string agentId = 1;
+    string host = 2;
+    bool online = 3;
+    double cpuPercent = 4;
+    int64 memoryBytes = 5;
+    // When the reading was taken, in Unix milliseconds. Zero when the agent has
+    // connected but not reported yet.
+    int64 lastReportMs = 6;
+}
+
+message GetSystemTelemetryRequest {}
+
+message GetSystemTelemetryResponse {
+    ResourceUsage server = 1;
+    repeated AgentResourceUsage agents = 2;
+    int64 timestampMs = 3;
+    int32 agentCount = 4;
 }

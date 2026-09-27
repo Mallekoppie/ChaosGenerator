@@ -9,20 +9,20 @@ import "time"
 // latest cumulative report from each agent and the fleet time-series lets the
 // history view and the documentation report survive a restart.
 type TestRunHistory struct {
-	ExecutionId            string              `json:"executionId"`
-	UseCaseId              string              `json:"useCaseId"`
-	UseCaseName            string              `json:"useCaseName"`
-	TargetId               string              `json:"targetId"`
-	TargetName             string              `json:"targetName"`
-	TargetAddress          string              `json:"targetAddress"`
-	TargetProtocol         string              `json:"targetProtocol"`
-	SimulatedUsersPerAgent int32               `json:"simulatedUsersPerAgent"`
-	AgentIds               []string            `json:"agentIds"`
-	StartTime              time.Time           `json:"startTime"`
-	EndTime                time.Time           `json:"endTime"`
-	Running                bool                `json:"running"`
+	ExecutionId            string                 `json:"executionId"`
+	UseCaseId              string                 `json:"useCaseId"`
+	UseCaseName            string                 `json:"useCaseName"`
+	TargetId               string                 `json:"targetId"`
+	TargetName             string                 `json:"targetName"`
+	TargetAddress          string                 `json:"targetAddress"`
+	TargetProtocol         string                 `json:"targetProtocol"`
+	SimulatedUsersPerAgent int32                  `json:"simulatedUsersPerAgent"`
+	AgentIds               []string               `json:"agentIds"`
+	StartTime              time.Time              `json:"startTime"`
+	EndTime                time.Time              `json:"endTime"`
+	Running                bool                   `json:"running"`
 	Agents                 []TestRunAgentSnapshot `json:"agents"`
-	Samples                []TestRunSample     `json:"samples,omitempty"`
+	Samples                []TestRunSample        `json:"samples,omitempty"`
 }
 
 // TestRunAgentSnapshot is the latest cumulative report one agent produced for a

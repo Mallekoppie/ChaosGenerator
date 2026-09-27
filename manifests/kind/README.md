@@ -42,12 +42,24 @@ The registry/production oriented manifests live in `../server`, `../agent` and
 
 ```bash
 make kind-up      # create cluster + build/load images + deploy everything
+make kind-reload  # rebuild server/agent images, load them, roll their pods
 make proxy        # web UI on 9001, Prometheus on 9091, Grafana on 3000
 make kind-status  # deployments, pods and services
 make kind-verify  # agents that registered with the master
 make kind-logs    # master, agent, target and Prometheus logs
 make kind-down    # remove the Chaos resources (keep the cluster)
 ```
+
+`kind-reload` is the fast inner loop when iterating on the master or the agent:
+it only rebuilds the images in `RELOAD_COMPONENTS` (default `master agent`),
+copies them into the node and restarts their pods, so the targets and the
+monitoring stack are left untouched. Widen it when a change spans more of the
+stack, for example
+`make kind-reload RELOAD_COMPONENTS="master agent target-http target-grpc"`.
+`make kind-load` copies whatever is already built without rebuilding it.
+
+The master image bundles the Flutter web app, so `make kind-reload` also picks
+up control-panel changes - no separate `make buildweb` step is needed.
 
 kind drives podman (or docker), which cannot run inside the dev container this
 repository is usually edited in, so the `kind-*` targets and `make proxy` must
