@@ -16,7 +16,9 @@ spec:
     spec:
       containers:
       - name: chaos-master
-        image: your-registry/chaos-master:latest
+        # One image holds every binary; `command` picks the master.
+        image: ghcr.io/mallekoppie/chaos-generator:latest
+        command: ["/chaos-master"]
         ports:
         - containerPort: 9002
           name: grpc

@@ -18,11 +18,13 @@ spec:
     spec:
       containers:
       - name: chaos-agent
-        image: chaos-agent:latest
+        # One image holds every binary; `command` picks the agent.
+        image: chaos-generator:latest
         # `make kind-images` loads the locally built image into the node. Without
         # IfNotPresent the injected ":latest" tag defaults to Always, which makes
-        # the kubelet try (and fail) to pull chaos-agent from a registry.
+        # the kubelet try (and fail) to pull the image from a registry.
         imagePullPolicy: IfNotPresent
+        command: ["/chaos-agent"]
         ports:
         # Agents only connect out to the master; the port is for metrics scrapers.
         - containerPort: 9091

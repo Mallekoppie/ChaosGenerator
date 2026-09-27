@@ -20,7 +20,9 @@ spec:
     spec:
       containers:
       - name: target-http
-        image: your-registry/target-http:latest
+        # One image holds every binary; `command` picks the HTTP target.
+        image: ghcr.io/mallekoppie/chaos-generator:latest
+        command: ["/target-http"]
         ports:
         - containerPort: 8443
           name: https

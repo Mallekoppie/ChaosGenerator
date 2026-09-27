@@ -60,7 +60,8 @@ spec:
     spec:
       containers:
       - name: chaos-agent
-        image: chaos-agent:latest
+        image: ghcr.io/mallekoppie/chaos-generator:latest
+        command: ["/chaos-agent"]
         env:
         - name: CHAOS_MASTER_ADDRESS
           value: "chaos-master-service:9002"
@@ -87,7 +88,8 @@ spec:
     spec:
       containers:
       - name: chaos-agent
-        image: chaos-agent:latest
+        image: ghcr.io/mallekoppie/chaos-generator:latest
+        command: ["/chaos-agent"]
         envFrom:
         - configMapRef:
             name: chaos-agent-config
@@ -111,7 +113,8 @@ spec:
     spec:
       containers:
       - name: chaos-agent
-        image: chaos-agent:latest
+        image: ghcr.io/mallekoppie/chaos-generator:latest
+        command: ["/chaos-agent"]
         env:
         - name: CHAOS_MASTER_ADDRESS
           valueFrom:
@@ -126,14 +129,20 @@ spec:
 version: '3.8'
 services:
   chaos-master:
-    image: chaos-master:latest
+    image: ghcr.io/mallekoppie/chaos-generator:latest
+    command: ["/chaos-master"]
     ports:
       - "9002:9002"
+      - "8080:8080"
     volumes:
       - ./data:/data
+    environment:
+      CHAOS_MASTER_WEB_ADDRESS: "0.0.0.0:8080"
+      CHAOS_MASTER_DB_PATH: "/data/chaos_master.db"
   
   chaos-agent-1:
-    image: chaos-agent:latest
+    image: ghcr.io/mallekoppie/chaos-generator:latest
+    command: ["/chaos-agent"]
     environment:
       CHAOS_MASTER_ADDRESS: "chaos-master:9002"
       CHAOS_AGENT_VERSION: "2.0.0"
@@ -141,7 +150,8 @@ services:
       - chaos-master
   
   chaos-agent-2:
-    image: chaos-agent:latest
+    image: ghcr.io/mallekoppie/chaos-generator:latest
+    command: ["/chaos-agent"]
     environment:
       CHAOS_MASTER_ADDRESS: "chaos-master:9002"
       CHAOS_AGENT_VERSION: "2.0.0"

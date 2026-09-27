@@ -9,14 +9,17 @@ They deliberately avoid everything a vanilla kind cluster does not provide:
 
 - no `ServiceMonitor` (the Prometheus Operator CRDs are not installed), so
   Prometheus is deployed with a ConfigMap-based scrape config instead,
-- local image names (`localhost/chaos-master:latest`, ...) instead of a
-  `your-registry/...` placeholder. Podman stores unqualified names under
-  `localhost/`, and the Makefile sets `REGISTRY=localhost/` to match, so the pods
-  use the images loaded by `kind load` instead of pulling from Docker Hub,
-- `imagePullPolicy: IfNotPresent` on every container, so the images loaded with
-  `kind load` are used instead of being pulled from Docker Hub (a `:latest` tag
+- one local image (`localhost/chaos-generator:latest`) instead of a
+  `ghcr.io/...` reference. Podman stores unqualified names under `localhost/`,
+  and the Makefile sets `REGISTRY=localhost/` to match, so the pods use the image
+  loaded by `kind load` instead of pulling from Docker Hub,
+- one image that carries every binary, with a `command:` on each container that
+  picks the one it runs (`/chaos-master`, `/chaos-agent`, `/target-http`,
+  `/target-grpc`),
+- `imagePullPolicy: IfNotPresent` on every container, so the image loaded with
+  `kind load` is used instead of being pulled from Docker Hub (a `:latest` tag
   would otherwise default to `Always`),
-- distroless images that run as uid 65532 with no shell, so probes use
+- a distroless image that runs as uid 65532 with no shell, so probes use
   `httpGet` / `tcpSocket` instead of running `pgrep` through a shell,
 - `emptyDir` rather than PVCs for the Prometheus and Grafana data.
 
@@ -37,12 +40,12 @@ The registry/production oriented manifests live in `../server`, `../agent` and
 ## Usage
 
 `make manifests` renders these directories into `manifests/generated/`
-(gitignored) using the image names and tags produced by `make docker-build`, and
+(gitignored) using the image name and tag produced by `make docker-build`, and
 `make kind-up` deploys them:
 
 ```bash
-make kind-up      # create cluster + build/load images + deploy everything
-make kind-reload  # rebuild server/agent images, load them, roll their pods
+make kind-up      # create cluster + build/load the image + deploy everything
+make kind-reload  # rebuild the image, load it, roll the pods
 make proxy        # web UI on 9001, Prometheus on 9091, Grafana on 3000
 make kind-status  # deployments, pods and services
 make kind-verify  # agents that registered with the master
@@ -50,16 +53,17 @@ make kind-logs    # master, agent, target and Prometheus logs
 make kind-down    # remove the Chaos resources (keep the cluster)
 ```
 
-`kind-reload` is the fast inner loop when iterating on the master or the agent:
-it only rebuilds the images in `RELOAD_COMPONENTS` (default `master agent`),
-copies them into the node and restarts their pods, so the targets and the
-monitoring stack are left untouched. Widen it when a change spans more of the
-stack, for example
+`kind-reload` is the fast inner loop: it rebuilds the one image, copies it into
+the node and restarts the pods that run it, so the monitoring stack is left
+untouched. There is no per-component image any more, so the build always produces
+every binary (the Flutter layer stays cached unless `web/` changes);
+`RELOAD_COMPONENTS` (default `master agent`) only picks which deployments get
+rolled afterwards. Widen it when a change spans more of the stack, for example
 `make kind-reload RELOAD_COMPONENTS="master agent target-http target-grpc"`.
 `make kind-load` copies whatever is already built without rebuilding it.
 
-The master image bundles the Flutter web app, so `make kind-reload` also picks
-up control-panel changes - no separate `make buildweb` step is needed.
+The image bundles the Flutter web app, so `make kind-reload` also picks up
+control-panel changes - no separate `make buildweb` step is needed.
 
 kind drives podman (or docker), which cannot run inside the dev container this
 repository is usually edited in, so the `kind-*` targets and `make proxy` must
@@ -118,12 +122,12 @@ make kind-clean     # delete the cluster and manifests/generated
 
 | Symptom | Cause / fix |
 |---------|-------------|
-| Pods stuck in `ImagePullBackOff` | The images were not loaded (`make kind-images`), `imagePullPolicy` is no longer `IfNotPresent`, or the pod's image name does not match the loaded image. Podman stores unqualified names as `localhost/<name>`, so `REGISTRY` must stay `localhost/` on podman hosts - the Makefile derives it from `docker --version`, which also works through the podman `docker` shim. |
+| Pods stuck in `ImagePullBackOff` | The image was not loaded (`make kind-images`), `imagePullPolicy` is no longer `IfNotPresent`, or the pod's image name does not match the loaded image. Podman stores unqualified names as `localhost/<name>`, so `REGISTRY` must stay `localhost/` on podman hosts - the Makefile derives it from `docker --version`, which also works through the podman `docker` shim. |
 | `kind create cluster` fails | kind needs a container engine: start podman on the host (`systemctl --user start podman.socket`). The Makefile sets `KIND_EXPERIMENTAL_PROVIDER=podman` for you. |
 | `kubectl` cannot reach the cluster | `kind create cluster` writes `~/.kube/config`. Check `KUBECONFIG`, or create the cluster with `kind create cluster --kubeconfig ~/.kube/kind-config` and export that path. |
 | The master PVC stays `Pending` | kind's default `standard` StorageClass (local-path provisioner) is missing. Drop `server/pvc.yaml`, set a `storageClassName` that exists, or mount an `emptyDir`. |
 | Agent pods restart repeatedly | They cannot reach the master: check `make kind-logs` and that `chaos-master-service:9002` resolves (master pod Ready). A restart or two right after the first `make kind-up` is expected - `chaos-agent` is applied before `chaos-master` (kustomize sorts by name), so the agent exits until the master accepts registrations. Re-run `make kind-deploy` if the rollout timed out. |
 | Master exits on startup | Web port already in use, or the BoltDB path is not writable - see `make kind-logs`. |
 | Master logs `permission denied` opening `/data/chaos_master.db` | The distroless image runs as uid 65532 while the provisioned volume is owned by root. kind's local-path provisioner normally hands out a `0777` directory, which works. If it does not, add a root initContainer (`busybox`, `chown -R 65532:65532 /data`) or set `securityContext.runAsUser: 0` on the master. |
-| `kubectl exec -it <pod> -- sh` fails | The images are distroless: there is no shell. Use `kubectl debug -it <pod> --image=busybox:stable --target=<container>` or build the `:debug` variant of the image. |
+| `kubectl exec -it <pod> -- sh` fails | The image is distroless: there is no shell. Use `kubectl debug -it <pod> --image=busybox:stable --target=<container>` or build the `:debug` variant of the image. |
 | Agent probes fail with `exec: "/bin/sh": stat ... no such file or directory` | The probes were reverted to `exec`/`pgrep`, which cannot work in distroless. Use `httpGet` on `/health` (metrics port 9091). |

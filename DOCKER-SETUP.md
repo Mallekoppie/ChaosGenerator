@@ -26,16 +26,23 @@ the container.
 
 ## Container Images
 
-| Target | Dockerfile | Image | Ports |
-|--------|-----------|-------|-------|
-| `make docker-build-master` | `build/dockerfile-chaos-master` | `chaos-master:latest` | 9002 gRPC, 8080 web |
-| `make docker-build-agent` | `build/dockerfile-chaos-agent` | `chaos-agent:latest` | - |
-| `make docker-build-target-http` | `build/dockerfile-target-http` | `target-http:latest` | 8080, 9090 metrics |
-| `make docker-build-target-grpc` | `build/dockerfile-target-grpc` | `target-grpc:latest` | 9000, 9090 metrics |
+| Command | Image | Binaries | Ports |
+|---------|-------|----------|-------|
+| `make docker-build` | `chaos-generator:latest` | `chaos-master`, `chaos-agent`, `target-http`, `target-grpc` | 8080/8443/9000/9001/9002/9090/9091 |
 
-`make docker-build` builds all four. The master image compiles the Flutter web
-app during the build (Flutter is not required on the host) and embeds it in the
-binary. Tag the images for a registry with:
+There is **one image for every component**. It carries all four binaries and each
+manifest picks the one to run with `command:`:
+
+| Deployment | `command` |
+|------------|-----------|
+| master | `/chaos-master` |
+| agent | `/chaos-agent` |
+| HTTP / TLS / HTTP2 target | `/target-http` |
+| gRPC target | `/target-grpc` |
+
+`make docker-build` compiles the Flutter web app during the build (Flutter is not
+required on the host) and embeds it in the master binary. Tag the image for a
+registry with:
 
 ```bash
 make docker-build REGISTRY=registry.example.com/ IMAGE_TAG=1.2.3
@@ -44,16 +51,16 @@ make docker-build REGISTRY=registry.example.com/ IMAGE_TAG=1.2.3
 If you host the control panel under a sub-path, pass `BASE_HREF`:
 
 ```bash
-make docker-build-master BASE_HREF=/chaos/
+make docker-build BASE_HREF=/chaos/
 ```
 
 ### The `localhost/` image prefix
 
 Rootless podman stores unqualified image names under a `localhost/` prefix, and
 so does the `docker` shim that distros such as Bazzite install. If the images were
-loaded into the node as `localhost/chaos-master:latest` while the manifests asked
-for `chaos-master:latest`, the kubelet would try to pull the bare name from Docker
-Hub and every pod would sit in `ImagePullBackOff`.
+loaded into the node as `localhost/chaos-generator:latest` while the manifests
+asked for `chaos-generator:latest`, the kubelet would try to pull the bare name
+from Docker Hub and every pod would sit in `ImagePullBackOff`.
 
 The Makefile therefore derives `REGISTRY` from the engine itself
 (`docker --version` reports `podman version ...` through the shim):
@@ -67,7 +74,7 @@ Override it if you push to a real registry: `make kind-up REGISTRY=registry.exam
 
 ## Distroless Runtime Images
 
-The runtime stage of all four images is
+The runtime stage of the image is
 [`gcr.io/distroless/static-debian13:nonroot`](https://github.com/GoogleContainerTools/distroless),
 so a running container holds only the static binary plus its runtime
 dependencies - a CA bundle (`/etc/ssl/certs`), `/tmp`, `/etc/passwd` - and runs
@@ -138,10 +145,7 @@ on their container ports inside the cluster.
 
 ```
 build/
-  dockerfile-chaos-master       # master image (builds and embeds the Flutter app)
-  dockerfile-chaos-agent        # agent image
-  dockerfile-target-http        # HTTP / HTTPS / HTTP2 target image
-  dockerfile-target-grpc        # gRPC target image
+  dockerfile                    # the one image: all four binaries + embedded web app
 manifests/
   kind/                         # self-contained kind manifests
     server/                     # master Deployment, Service, PVC, Secret

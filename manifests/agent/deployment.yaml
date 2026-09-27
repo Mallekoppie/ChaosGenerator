@@ -16,7 +16,9 @@ spec:
     spec:
       containers:
       - name: chaos-agent
-        image: your-registry/chaos-agent:latest
+        # One image holds every binary; `command` picks the agent.
+        image: ghcr.io/mallekoppie/chaos-generator:latest
+        command: ["/chaos-agent"]
         ports:
         # Agents only connect out to the master; this port serves the Prometheus
         # metrics and the /health endpoint the probes use.

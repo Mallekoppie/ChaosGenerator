@@ -31,13 +31,18 @@ HTTP/2 and gRPC service names.
 
 See [manifests/kind/README.md](manifests/kind/README.md) for details.
 
-## Step 1: Update Image References
+## Step 1: Check the Image Reference
 
-Edit the manifest files to point to your container registry:
-- `manifests/server/deployment.yaml` 
-- `manifests/agent/deployment.yaml`
+Every manifest uses the same image, `ghcr.io/mallekoppie/chaos-generator:latest`,
+and selects its binary with `command:`. To use your own build, either edit the
+`image:` field in `manifests/server/deployment.yaml`,
+`manifests/agent/deployment.yaml` and the `manifests/target-http/deployment*.yaml`
+files, or re-tag it in one place per kustomization (each has an `images:` block):
 
-Change `your-registry/chaos-master:latest` and `your-registry/chaos-agent:latest` to your actual images.
+```bash
+cd manifests/server
+kustomize edit set image ghcr.io/mallekoppie/chaos-generator=registry.example.com/chaos-generator:1.2.3
+```
 
 ## Step 2: Deploy Server
 

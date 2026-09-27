@@ -56,11 +56,11 @@ The image bakes in `protoc-gen-go`, `protoc-gen-go-grpc` and `protoc-gen-dart`, 
 ## Common tasks
 
 ```bash
-make all                       # build master, agent, client, targets
+make all                       # build master, agent, targets
 make test                      # go test + flutter test
 make lint                      # go vet + flutter analyze
 make fmt                       # format the Go and Dart sources
-make docker-build              # build images via the host engine
+make docker-build              # build the image via the host engine
 make manifests                 # render manifests/kind -> manifests/generated
 make host TARGET=proxy         # optional host passthrough (see HOST_RUNNER)
 ```
