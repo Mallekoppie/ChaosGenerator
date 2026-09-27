@@ -3,29 +3,43 @@
 ## Container images
 
 ```bash
-make docker-build              # all four images
-make docker-build-master       # builds the Flutter web app inside the image
-make docker-build-agent
-make docker-build-target-http
-make docker-build-target-grpc
+make docker-build              # builds chaos-generator (all binaries)
+make docker-push               # push it to a registry (needs REGISTRY=)
 ```
 
-To tag images for a registry:
+There is one image for every component. The manifests choose the binary to run
+with `command:` (`/chaos-master`, `/chaos-agent`, `/target-http`, `/target-grpc`).
+
+To tag the image for a registry:
 
 ```bash
 make docker-build REGISTRY=registry.example.com/ IMAGE_TAG=1.2.3
 ```
 
 `REGISTRY` defaults to `localhost/` when the engine is podman (including the
-`docker` shim on Bazzite). Podman stores unqualified image names under
-`localhost/`, and the kind manifests must use the same name that `kind load` puts
-into the node, otherwise every pod fails with `ImagePullBackOff`. With real Docker
-it defaults to empty.
+`docker` shim on Bazzite) and to empty with real Docker. Podman stores unqualified
+image names under `localhost/`, and the kind manifests must use the same name that
+`kind load` puts into the node, otherwise every pod fails with `ImagePullBackOff`.
+For `make docker-push`, set `REGISTRY` to a real registry. It builds and tags the
+image for that registry first, then pushes it:
 
-The master image embeds the web control panel. Override the hosting path with
-`make docker-build-master BASE_HREF=/chaos/` if needed.
+```bash
+docker login ghcr.io              # or: podman login ghcr.io
+make docker-push REGISTRY=ghcr.io/mallekoppie/ IMAGE_TAG=v0.1.0
+```
 
-The runtime images are distroless
+Pushing needs a **classic** personal access token with the `write:packages` scope
+(add `read:packages` if you also pull private images). GitHub Packages does not
+accept fine-grained tokens, and a token without the scope fails with
+`permission_denied: The token provided does not match expected scopes`. Create one
+without the auto-added `repo` scope at
+<https://github.com/settings/tokens/new?scopes=write:packages>, then
+`podman logout ghcr.io` before logging in again so the old token is not reused.
+
+The image embeds the web control panel. Override the hosting path with
+`make docker-build BASE_HREF=/chaos/` if needed.
+
+The runtime image is distroless
 (`gcr.io/distroless/static-debian13:nonroot`): no shell, no package manager, no
 libc, running as uid 65532. Use `httpGet`/`tcpSocket` probes (the master serves
 `/healthz`, the agent and the HTTP target serve `/health`) and the `:debug` tag

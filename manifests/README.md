@@ -80,6 +80,8 @@ kubectl apply -k manifests/agent/
 [kind](https://kind.sigs.k8s.io/) cluster: the master, the agents, the HTTP / TLS /
 HTTP2 / gRPC targets and Prometheus/Grafana in one namespace, with no
 ServiceMonitor CRDs and image names that match what `make docker-build` produces.
+Every Chaos workload uses the same `chaos-generator` image and picks its binary
+with `command:`.
 
 ```bash
 make kind-up      # create cluster + build/load images + deploy everything
@@ -210,7 +212,7 @@ kubectl apply -k my-custom-kustomization.yaml
 
 ## Production Considerations
 
-1. **Image Registry**: Update image references in deployment manifests to your registry
+1. **Image Registry**: every Chaos workload uses `ghcr.io/mallekoppie/chaos-generator`. Point them at your own registry by editing the `images:` block in each kustomization, or with `kustomize edit set image ghcr.io/mallekoppie/chaos-generator=<registry>/chaos-generator:<tag>`
 2. **Resources**: Adjust resource requests/limits based on your workload
 3. **Storage**: Configure appropriate storage class and size for the master PVC
 4. **Networking**: Consider using Ingress or LoadBalancer for external access

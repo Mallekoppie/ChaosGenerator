@@ -13,15 +13,6 @@ resources:
   - monitoring
 
 images:
-  - name: chaos-master
-    newName: __REGISTRY__chaos-master
-    newTag: __IMAGE_TAG__
-  - name: chaos-agent
-    newName: __REGISTRY__chaos-agent
-    newTag: __IMAGE_TAG__
-  - name: target-http
-    newName: __REGISTRY__target-http
-    newTag: __IMAGE_TAG__
-  - name: target-grpc
-    newName: __REGISTRY__target-grpc
+  - name: chaos-generator
+    newName: __REGISTRY__chaos-generator
     newTag: __IMAGE_TAG__

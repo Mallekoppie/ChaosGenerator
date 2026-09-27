@@ -16,3 +16,10 @@ commonLabels:
 replicas:
   - name: chaos-agent
     count: 3
+
+# One image for every component. Change the registry or the tag here, or with
+# `kustomize edit set image ghcr.io/mallekoppie/chaos-generator=<registry>/chaos-generator:<tag>`.
+images:
+  - name: ghcr.io/mallekoppie/chaos-generator
+    newName: ghcr.io/mallekoppie/chaos-generator
+    newTag: latest

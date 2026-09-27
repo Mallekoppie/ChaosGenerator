@@ -1,7 +1,7 @@
 # Chaos Generator
 #
 # Everything runs in a local kind cluster: this Makefile builds the binaries and
-# the container images, renders the manifests, drives the cluster and proxies the
+# the container image, renders the manifests, drives the cluster and proxies the
 # web UI and the monitoring stack back to your machine.
 #
 # The kind targets and the proxy need kubectl, kind and a container engine on the
@@ -13,7 +13,8 @@
 #   make buildweb               Build the Flutter web app (also done by the image)
 #   make proto                  Generate the Go stubs (proto-dart for Dart)
 #   make tools                  Install the protoc plugins (dev container has them)
-#   make docker-build           Build all container images
+#   make docker-build           Build the container image (all binaries)
+#   make docker-push            Push the image to a registry
 #
 # Cluster:
 #   make kind-up                Create the cluster, load images, deploy everything
@@ -21,9 +22,9 @@
 #   make kind-status            Deployments, pods, services and PVCs
 #   make kind-verify            Agents that registered with the master
 #   make kind-logs              Master, agent and target logs
-#   make kind-images            Build every image and load it into the cluster
-#   make kind-load              Load the built images into the cluster
-#   make kind-reload            Rebuild the server/agent, load and roll them
+#   make kind-images            Build the image and load it into the cluster
+#   make kind-load              Load the built image into the cluster
+#   make kind-reload            Rebuild the image, load it and roll the pods
 #   make kind-restart           Roll the deployments (pick up freshly loaded images)
 #   make kind-down              Remove the Chaos resources, keep the cluster
 #   make kind-delete            Delete the kind cluster
@@ -69,41 +70,32 @@ PROTOC      ?= protoc
 PROTOC_DART ?= protoc-gen-dart
 FLUTTER     ?= flutter
 DART        ?= dart
-DOCKER      ?= docker
+# Bazzite and other atomic distros ship podman behind a `docker` shim. Prefer
+# `docker` when it exists (same daemon either way) and fall back to podman.
+DOCKER      ?= $(shell command -v docker >/dev/null 2>&1 && echo docker || echo podman)
 KIND        ?= kind
 KUBECTL     ?= kubectl
 
 PROTOC_FLAGS := --go_out=. --go-grpc_out=. --go_opt=paths=source_relative --go-grpc_opt=paths=source_relative
 
 # --- Components -------------------------------------------------------------
-COMPONENTS := master agent client target-http target-grpc
+COMPONENTS := master agent target-http target-grpc
 
 COMPONENT_DIR_master      := master
 COMPONENT_DIR_agent       := agent
-COMPONENT_DIR_client      := client
 COMPONENT_DIR_target-http := target-http
 COMPONENT_DIR_target-grpc := target-grpc
 
 BIN_NAME_master      := chaos-master
 BIN_NAME_agent       := chaos-agent
-BIN_NAME_client      := chaos-client
 BIN_NAME_target-http := target-http
 BIN_NAME_target-grpc := target-grpc
 
-# Components that have a container image, the image tag they produce and the
-# Dockerfile that builds them. The Dockerfiles are multi-stage, so building an
-# image does not require `make all` first.
-IMAGE_COMPONENTS := master agent target-http target-grpc
-
-IMAGE_NAME_master      := chaos-master
-IMAGE_NAME_agent       := chaos-agent
-IMAGE_NAME_target-http := target-http
-IMAGE_NAME_target-grpc := target-grpc
-
-DOCKERFILE_master      := build/dockerfile-chaos-master
-DOCKERFILE_agent       := build/dockerfile-chaos-agent
-DOCKERFILE_target-http := build/dockerfile-target-http
-DOCKERFILE_target-grpc := build/dockerfile-target-grpc
+# Every component ships in one container image. The image carries all the
+# binaries and the manifests select the one to run with `command:`. The
+# Dockerfile is multi-stage, so building an image does not require `make all`.
+IMAGE_NAME := chaos-generator
+DOCKERFILE := build/dockerfile
 
 # --- Web / images -----------------------------------------------------------
 BASE_HREF ?= /
@@ -125,16 +117,17 @@ ENGINE_IS_PODMAN := $(shell $(DOCKER) --version 2>/dev/null | grep -qi podman &&
 ifeq ($(ENGINE_IS_PODMAN),yes)
 KIND_ENV := KIND_EXPERIMENTAL_PROVIDER=podman
 # Podman stores unqualified image names under a localhost/ prefix. Without that
-# prefix here, the images loaded into the node would be called
-# localhost/chaos-master:latest while the pods asked for chaos-master:latest, and
-# every pod would fail with ImagePullBackOff trying to reach Docker Hub.
+# prefix here, the image loaded into the node would be called
+# localhost/chaos-generator:latest while the pods asked for
+# chaos-generator:latest, and every pod would fail with ImagePullBackOff trying
+# to reach Docker Hub.
 REGISTRY ?= localhost/
 else
 KIND_ENV :=
 REGISTRY ?=
 endif
 
-KIND_IMAGES := $(foreach c,$(IMAGE_COMPONENTS),$(REGISTRY)$(IMAGE_NAME_$(c)):$(IMAGE_TAG))
+KIND_IMAGES := $(REGISTRY)$(IMAGE_NAME):$(IMAGE_TAG)
 
 # --- Local ports ------------------------------------------------------------
 # 8080 is frequently taken on a workstation, so the web UI defaults to 9001.
@@ -270,15 +263,34 @@ tidy:
 ci: proto fmt-check lint test docker-build
 
 # --- Container images -------------------------------------------------------
-.PHONY: docker-build
-docker-build: $(addprefix docker-build-,$(IMAGE_COMPONENTS))
+# One image holds every binary (chaos-master, chaos-agent, target-http,
+# target-grpc); the manifests pick which one runs with `command:`.
+.PHONY: docker-build docker-push
 
-# IMAGE_COMPONENTS are deliberately not .PHONY: a phony target is never matched
-# by a pattern rule, which is what provides the recipe below.
-docker-build-%:
-	$(DOCKER) build -f $(DOCKERFILE_$*) $(BUILD_ARGS_$*) -t $(REGISTRY)$(IMAGE_NAME_$*):$(IMAGE_TAG) .
+docker-build:
+	$(DOCKER) build -f $(DOCKERFILE) \
+		--build-arg FLUTTER_BASE_HREF=$(BASE_HREF) \
+		-t $(REGISTRY)$(IMAGE_NAME):$(IMAGE_TAG) .
 
-docker-build-master: BUILD_ARGS_master := --build-arg FLUTTER_BASE_HREF=$(BASE_HREF)
+# Build the image for the target registry and push it. REGISTRY has to name a real
+# registry here - the `localhost/` default exists for `kind load`, and an image
+# tagged `localhost/...` cannot be pushed anywhere. The build is re-tagged for the
+# registry first (incremental, so it is cheap when nothing changed). Works with
+# podman too: log in with whichever CLI you use.
+#   docker login ghcr.io          # or: podman login ghcr.io
+#   make docker-push REGISTRY=ghcr.io/mallekoppie/ IMAGE_TAG=v0.1.0
+docker-push: check-push-registry docker-build
+	$(DOCKER) push $(REGISTRY)$(IMAGE_NAME):$(IMAGE_TAG)
+
+.PHONY: check-push-registry
+check-push-registry:
+	@case "$(REGISTRY)" in \
+	""|localhost/) \
+		echo "Set REGISTRY to a real registry, for example:"; \
+		echo "  make docker-push REGISTRY=ghcr.io/mallekoppie/ IMAGE_TAG=v0.1.0"; \
+		echo "(log in first: docker login ghcr.io - or podman login ghcr.io)"; \
+		exit 1;; \
+	esac
 
 # --- Certificates -----------------------------------------------------------
 # One self-signed certificate serves every TLS target. The SANs cover localhost
@@ -399,7 +411,7 @@ kind-load: kind-preflight
 
 # Build the images kind deploys and load them into the node.
 kind-images: kind-preflight
-	@echo "Building images with $(CONTAINER_ENGINE)..."
+	@echo "Building $(REGISTRY)$(IMAGE_NAME):$(IMAGE_TAG) with $(CONTAINER_ENGINE)..."
 	@$(MAKE) --no-print-directory docker-build DOCKER=$(CONTAINER_ENGINE)
 	@$(MAKE) --no-print-directory kind-load
 
@@ -462,12 +474,12 @@ kind-restart:
 	done
 	@echo "Rolled out the Chaos stack."
 
-# Rebuild the server and agent images, load them into the node and roll their
-# pods. This is the fast inner loop for control-plane work: unlike kind-up it
-# never rebuilds or restarts the targets or the monitoring stack.
+# Rebuild the image, load it into the node and roll the pods that run it. This
+# is the fast inner loop: unlike kind-up it never restarts the monitoring stack.
 #
-# RELOAD_COMPONENTS maps a build component onto the deployments that run it, so
-# the set can be widened when a change spans more of the stack:
+# There is one image for every component now, so the build always produces all
+# the binaries (the Flutter layer stays cached unless web/ changes).
+# RELOAD_COMPONENTS only picks which deployments get rolled afterwards:
 #   make kind-reload RELOAD_COMPONENTS="master agent target-http target-grpc"
 RELOAD_COMPONENTS ?= master agent
 
@@ -476,13 +488,12 @@ DEPLOYMENTS_agent       := chaos-agent
 DEPLOYMENTS_target-http := target-http target-http-tls target-http2
 DEPLOYMENTS_target-grpc := target-grpc
 
-RELOAD_IMAGES      := $(foreach c,$(RELOAD_COMPONENTS),$(REGISTRY)$(IMAGE_NAME_$(c)):$(IMAGE_TAG))
 RELOAD_DEPLOYMENTS := $(foreach c,$(RELOAD_COMPONENTS),$(DEPLOYMENTS_$(c)))
 
 kind-reload: kind-preflight
-	@echo "Building $(RELOAD_COMPONENTS) with $(CONTAINER_ENGINE)..."
-	@$(MAKE) --no-print-directory $(addprefix docker-build-,$(RELOAD_COMPONENTS)) DOCKER=$(CONTAINER_ENGINE)
-	@$(MAKE) --no-print-directory kind-load KIND_LOAD_IMAGES="$(RELOAD_IMAGES)"
+	@echo "Building $(REGISTRY)$(IMAGE_NAME):$(IMAGE_TAG) with $(CONTAINER_ENGINE)..."
+	@$(MAKE) --no-print-directory docker-build DOCKER=$(CONTAINER_ENGINE)
+	@$(MAKE) --no-print-directory kind-load
 	@echo "Rolling $(RELOAD_DEPLOYMENTS)..."
 	@$(KUBECTL) -n $(KIND_NAMESPACE) rollout restart $(addprefix deployment/,$(RELOAD_DEPLOYMENTS))
 	@for d in $(RELOAD_DEPLOYMENTS); do \
@@ -572,8 +583,6 @@ proxy-monitoring: cluster-preflight
 
 proxy-grpc: cluster-preflight
 	@echo "master gRPC: localhost:$(GRPC_PORT) (Ctrl-C to stop)"
-	@echo "Point the client at it with:"
-	@echo "  CHAOS_MASTER_ADDRESS=localhost:$(GRPC_PORT) ./bin/chaos-client"
 	@$(KUBECTL) -n $(KIND_NAMESPACE) port-forward svc/chaos-master-service $(GRPC_PORT):$(CLUSTER_GRPC_PORT)
 
 # Kept so older notes and links keep working.

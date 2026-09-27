@@ -22,11 +22,13 @@ spec:
     spec:
       containers:
       - name: target-http2
-        image: target-http:latest
+        # One image holds every binary; `command` picks the HTTP target.
+        image: chaos-generator:latest
         # `make kind-images` loads the locally built image into the node. Without
         # IfNotPresent the injected ":latest" tag defaults to Always, which makes
-        # the kubelet try (and fail) to pull target-http from a registry.
+        # the kubelet try (and fail) to pull the image from a registry.
         imagePullPolicy: IfNotPresent
+        command: ["/target-http"]
         ports:
         - containerPort: 8080
           name: https

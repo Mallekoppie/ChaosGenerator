@@ -56,6 +56,18 @@ protoc --go_out=. --go-grpc_out=. --go_opt=paths=source_relative --go-grpc_opt=p
 protoc --go_out=. --go-grpc_out=. --go_opt=paths=source_relative --go-grpc_opt=paths=source_relative ./internal/contracts/master.proto
 ```
 
+### Build the container image
+
+One image carries every binary, and the manifests pick the one to run with
+`command:`:
+
+```bash
+make docker-build                                     # chaos-generator:latest
+make docker-push REGISTRY=ghcr.io/mallekoppie/ IMAGE_TAG=v0.1.0
+```
+
+See [build/README.md](build/README.md) for the per-binary `docker run` examples.
+
 ### Clean build artifacts
 
 ```bash
@@ -86,19 +98,6 @@ container remains the place to build, test and run `make manifests`.
 
 The web UI port is a variable because 8080 is often already taken on a
 workstation. Inside the cluster the master still listens on 8080.
-
-### Run the test client
-
-`make all` still builds `bin/chaos-client`, but there is no run target for it.
-Forward the master gRPC port and point the client at it:
-
-```bash
-make proxy-grpc
-CHAOS_MASTER_ADDRESS=localhost:9002 ./bin/chaos-client
-```
-
-The client defaults to `127.0.0.1:9002`, so with `make proxy-grpc` running, plain
-`./bin/chaos-client` works without any environment variable.
 
 ## Web Control Panel
 
@@ -141,7 +140,7 @@ rather than running without a web UI.
 make proxy       # then open http://localhost:9001/
 ```
 
-The container image sets `CHAOS_MASTER_WEB_ADDRESS` to `0.0.0.0:8080`, so in the
+The master Deployment sets `CHAOS_MASTER_WEB_ADDRESS` to `0.0.0.0:8080`, so in the
 cluster the panel listens on 8080 and `make proxy` maps it onto your local
 `WEB_UI_PORT` (9001 by default).
 

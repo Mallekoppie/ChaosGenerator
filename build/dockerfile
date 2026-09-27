@@ -1,0 +1,92 @@
+# Chaos Generator - one image for every component.
+#
+# The image carries all four binaries (chaos-master, chaos-agent, target-http,
+# target-grpc) and the Flutter web app embedded in the master. A manifest picks
+# the binary to run with `command:`:
+#
+#   command: ["/chaos-master"]   # or /chaos-agent, /target-http, /target-grpc
+#
+# Build it with `make docker-build` (which passes FLUTTER_BASE_HREF) or push it
+# with `make docker-push`.
+
+# --- Web build stage (Flutter + Dart gRPC-Web stubs) -------------------------
+FROM ghcr.io/cirruslabs/flutter:stable AS webbuilder
+
+ENV PATH="$PATH:/root/.pub-cache/bin"
+
+WORKDIR /web
+
+# The base href used when building the web app. The default works for
+# `kubectl port-forward` (http://localhost:8080/).
+ARG FLUTTER_BASE_HREF=/
+
+COPY web/ ./
+COPY internal/contracts/ /contracts/
+
+RUN dart pub global activate protoc_plugin 25.1.0 \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p lib/src/generated \
+    && protoc -I /contracts --dart_out=grpc:lib/src/generated /contracts/master.proto /contracts/auth.proto \
+    && flutter pub get \
+    && flutter build web --release --base-href=${FLUTTER_BASE_HREF}
+
+# --- Go build stage ----------------------------------------------------------
+FROM golang:1.26-alpine AS builder
+
+WORKDIR /app
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Embed the compiled Flutter web app. cmd/master/dist is excluded by
+# .dockerignore, so this COPY creates it.
+COPY --from=webbuilder /web/build/web/ ./cmd/master/dist/
+
+# Build every binary in one pass. cmd/master embeds dist/, so the web app has to
+# be in place first.
+RUN mkdir -p /out \
+    && CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /out/chaos-master ./cmd/master \
+    && CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /out/chaos-agent ./cmd/agent \
+    && CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /out/target-http ./cmd/target-http \
+    && CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /out/target-grpc ./cmd/target-grpc
+
+# The distroless runtime has no shell, so every directory the container needs is
+# created here and copied into the runtime stage below.
+RUN mkdir -p /app/data
+
+# --- Runtime stage -----------------------------------------------------------
+# distroless: only the static binaries and their runtime dependencies (a CA
+# bundle at /etc/ssl/certs, /tmp, /etc/passwd) plus the "nonroot" user
+# (uid 65532). There is no shell, package manager or libc, so Kubernetes probes
+# must use httpGet/tcpSocket and the container cannot be entered with `sh`.
+FROM gcr.io/distroless/static-debian13:nonroot
+
+# The binaries sit in / so a manifest selects one with `command: ["/chaos-agent"]`.
+COPY --from=builder /out/chaos-master /chaos-master
+COPY --from=builder /out/chaos-agent /chaos-agent
+COPY --from=builder /out/target-http /target-http
+COPY --from=builder /out/target-grpc /target-grpc
+
+# BoltDB data directory, owned by the non-root user. With a named volume
+# (`docker run -v chaos-master-data:/data`) this ownership is copied into the
+# volume when it is created.
+COPY --from=builder --chown=65532:65532 /app/data /data
+
+# Every port a component listens on - informational only, the manifests publish
+# the one they need:
+#   master       9002 gRPC, 8080 web (9001 is the code default)
+#   agent        9091 metrics
+#   target-http  8080, 9090 metrics
+#   target-grpc  9000, 9090 metrics
+EXPOSE 8080 9000 9001 9002 9090 9091
+
+# Every env var a component reads is set by the manifest, so the image only
+# needs a sensible default for a bare `docker run`. Manifests override it with
+# `command:`.
+CMD ["/chaos-master"]

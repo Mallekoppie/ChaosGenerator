@@ -18,11 +18,13 @@ spec:
     spec:
       containers:
       - name: chaos-master
-        image: chaos-master:latest
+        # One image holds every binary; `command` picks the master.
+        image: chaos-generator:latest
         # `make kind-images` loads the locally built image into the node. Without
         # IfNotPresent the injected ":latest" tag defaults to Always, which makes
-        # the kubelet try (and fail) to pull chaos-master from a registry.
+        # the kubelet try (and fail) to pull the image from a registry.
         imagePullPolicy: IfNotPresent
+        command: ["/chaos-master"]
         ports:
         - containerPort: 9002
           name: grpc

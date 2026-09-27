@@ -17,9 +17,6 @@ resources:
 # Repeated in every sub-kustomization so each rendered file (kind-server.yaml,
 # kind-agent.yaml, ...) is correct on its own, not just inside kind-all.yaml.
 images:
-  - name: target-http
-    newName: __REGISTRY__target-http
-    newTag: __IMAGE_TAG__
-  - name: target-grpc
-    newName: __REGISTRY__target-grpc
+  - name: chaos-generator
+    newName: __REGISTRY__chaos-generator
     newTag: __IMAGE_TAG__

@@ -15,7 +15,9 @@ namespace: chaos-testing
 commonLabels:
   project: chaos-generator
 
+# One image for every component. Change the registry or the tag here, or with
+# `kustomize edit set image ghcr.io/mallekoppie/chaos-generator=<registry>/chaos-generator:<tag>`.
 images:
-  - name: your-registry/target-http
-    newName: your-registry/target-http
+  - name: ghcr.io/mallekoppie/chaos-generator
+    newName: ghcr.io/mallekoppie/chaos-generator
     newTag: latest
