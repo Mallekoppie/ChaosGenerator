@@ -1,26 +1,35 @@
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
 import '../data/repo.dart';
 import '../generated/generated.dart';
 import '../theme.dart';
+import '../widgets/aether_charts.dart';
 import '../widgets/aether_chrome.dart';
 import '../widgets/aether_common.dart';
 import '../widgets/aether_kpi_card.dart';
 import '../widgets/aether_panel.dart';
 import '../widgets/aether_table.dart';
 
+/// Cadence at which the resource telemetry is polled. Kept in sync with the
+/// repository default and used to label the sparkline trend window.
+const _serverPollInterval = Duration(seconds: 3);
+
 /// **SYS-CM** — executive telemetry overview.
 ///
 /// Aggregates the data the control plane already exposes (registered agents,
-/// targets, scenarios and live executions) into a single flight-deck view.
-/// Live per-socket telemetry (req/s, latency envelopes, chaos injections) is
-/// not available yet and is deliberately not shown here.
+/// targets, scenarios and live executions) into a single flight-deck view, and
+/// surfaces the resource footprint of the master process and the agent fleet so
+/// memory can be watched as a run scales out. Live per-socket telemetry (req/s,
+/// latency envelopes, chaos injections) is not available yet and is deliberately
+/// not shown here.
 class TelemetryScreen extends StatefulWidget {
   const TelemetryScreen({
     required this.agents,
     required this.targets,
     required this.useCases,
     required this.executions,
+    required this.telemetry,
     super.key,
   });
 
@@ -28,6 +37,7 @@ class TelemetryScreen extends StatefulWidget {
   final TargetsRepository targets;
   final UseCasesRepository useCases;
   final ExecutionsRepository executions;
+  final SystemTelemetryRepository telemetry;
 
   @override
   State<TelemetryScreen> createState() => _TelemetryScreenState();
@@ -43,11 +53,17 @@ class _TelemetryScreenState extends State<TelemetryScreen> {
     widget.useCases.load();
     widget.executions.load();
     widget.executions.startPolling();
+
+    // Resource telemetry polls on the same cadence as the execution list so the
+    // memory footprint tracks a run as it scales out.
+    widget.telemetry.load();
+    widget.telemetry.startPolling(interval: _serverPollInterval);
   }
 
   @override
   void dispose() {
     widget.executions.stopPolling();
+    widget.telemetry.stopPolling();
     super.dispose();
   }
 
@@ -57,6 +73,7 @@ class _TelemetryScreenState extends State<TelemetryScreen> {
       widget.targets.load(),
       widget.useCases.load(),
       widget.executions.load(),
+      widget.telemetry.load(),
     ]);
   }
 
@@ -81,6 +98,7 @@ class _TelemetryScreenState extends State<TelemetryScreen> {
           widget.targets,
           widget.useCases,
           widget.executions,
+          widget.telemetry,
         ]),
         builder: (context, _) {
           final agents = widget.agents.agents;
@@ -121,6 +139,10 @@ class _TelemetryScreenState extends State<TelemetryScreen> {
             padding: const EdgeInsets.all(16),
             children: [
               _buildKpiDeck(agents, targets, useCases, executions),
+              const SizedBox(height: 16),
+              _buildServerResources(),
+              const SizedBox(height: 16),
+              _buildAgentResources(),
               const SizedBox(height: 16),
               _buildRegistryBreakdown(agents, targets),
               const SizedBox(height: 16),
@@ -193,6 +215,198 @@ class _TelemetryScreenState extends State<TelemetryScreen> {
         ),
       ],
     );
+  }
+
+  /// Control-plane resource footprint. Shown ahead of the agent fleet so the
+  /// master's own CPU and memory stay visible when a run scales out.
+  Widget _buildServerResources() {
+    final telemetry = widget.telemetry;
+    final server = telemetry.server;
+
+    if (server == null) {
+      return AetherPanel(
+        title: 'Server resources',
+        accent: AetherPalette.cyanBright,
+        child: ConsoleMessage(
+          telemetry.error ?? 'Waiting for the control plane to report',
+          icon: Icons.dns_outlined,
+          color: telemetry.error == null
+              ? AetherPalette.textMuted
+              : AetherPalette.crimson,
+        ),
+      );
+    }
+
+    final cpuSpots = _serverSpots(
+      telemetry.serverHistory,
+      (sample) => sample.cpuPercent,
+    );
+    final memorySpots = _serverSpots(
+      telemetry.serverHistory,
+      (sample) => sample.memoryBytes.toDouble(),
+    );
+
+    return AetherPanel(
+      title: 'Server resources',
+      accent: AetherPalette.cyanBright,
+      trailing: const StatusPill(
+        label: 'control plane',
+        color: AetherPalette.cyanBright,
+      ),
+      child: KpiDeck(
+        cards: [
+          KpiCard(
+            label: 'Server CPU',
+            value: server.cpuPercent.toStringAsFixed(1),
+            unit: '%',
+            icon: Icons.speed,
+            accent: _loadAccent(server.cpuPercent),
+            hint:
+                'master process · ${_windowLabel(telemetry.serverHistory.length)} trend',
+            sparkline: cpuSpots.length >= 2
+                ? AetherSparkline(
+                    points: cpuSpots,
+                    color: _loadAccent(server.cpuPercent),
+                  )
+                : null,
+          ),
+          KpiCard(
+            label: 'Server memory',
+            value: _formatBytes(server.memoryBytes.toInt()),
+            unit: 'rss',
+            icon: Icons.memory,
+            accent: AetherPalette.cyanBright,
+            hint: _memoryTrend(telemetry.serverHistory),
+            sparkline: memorySpots.length >= 2
+                ? AetherSparkline(
+                    points: memorySpots,
+                    color: AetherPalette.cyanBright,
+                  )
+                : null,
+          ),
+          KpiCard(
+            label: 'Runtime goroutines',
+            value: '${server.goroutines}',
+            unit: 'go',
+            icon: Icons.hub,
+            accent: AetherPalette.emeraldBright,
+            hint: 'live goroutines in the master',
+          ),
+          KpiCard(
+            label: 'Server uptime',
+            value: _formatUptime(server.uptimeSeconds.toInt()),
+            unit: 'up',
+            icon: Icons.timer_outlined,
+            accent: AetherPalette.amber,
+            hint: 'since the master started',
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Per-agent CPU and memory. This is the reading that matters most when a run
+  /// fans out across a larger fleet.
+  Widget _buildAgentResources() {
+    final agents = widget.telemetry.agents;
+
+    return AetherPanel(
+      title: 'Agent resources',
+      accent: AetherPalette.emeraldBright,
+      padding: EdgeInsets.zero,
+      trailing: TelemetryText(
+        '${agents.length} online',
+        size: 11,
+        color: AetherPalette.textMuted,
+      ),
+      child: agents.isEmpty
+          ? const ConsoleMessage(
+              'No agents are connected',
+              icon: Icons.dns_outlined,
+            )
+          : AetherDataTable(
+              columns: const [
+                DataColumn(label: Text('Agent')),
+                DataColumn(label: Text('Host')),
+                DataColumn(label: Text('CPU')),
+                DataColumn(label: Text('Memory')),
+                DataColumn(label: Text('Last report')),
+              ],
+              rows: [
+                for (final agent in agents)
+                  DataRow(
+                    color: AetherDataTable.rowHighlight,
+                    cells: [
+                      DataCell(
+                        TelemetryText(
+                          agent.agentId,
+                          size: 12.5,
+                          color: AetherPalette.cyanBright,
+                        ),
+                      ),
+                      DataCell(
+                        TelemetryText(
+                          agent.host.isEmpty ? '—' : agent.host,
+                          size: 12.5,
+                        ),
+                      ),
+                      DataCell(_cpuCell(agent.cpuPercent)),
+                      DataCell(
+                        TelemetryText(_formatBytes(agent.memoryBytes.toInt())),
+                      ),
+                      DataCell(_lastReportCell(agent.lastReportMs.toInt())),
+                    ],
+                  ),
+              ],
+            ),
+    );
+  }
+
+  Widget _cpuCell(double cpuPercent) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: 90,
+          child: MeterBar(
+            fraction: cpuPercent / 100,
+            color: _loadAccent(cpuPercent),
+          ),
+        ),
+        const SizedBox(width: 10),
+        TelemetryText(
+          '${cpuPercent.toStringAsFixed(1)}%',
+          size: 11.5,
+          color: AetherPalette.textMuted,
+        ),
+      ],
+    );
+  }
+
+  Widget _lastReportCell(int lastReportMs) {
+    if (lastReportMs <= 0) {
+      return TelemetryText('—', size: 12.5, color: AetherPalette.textMuted);
+    }
+
+    final age = DateTime.now().difference(
+      DateTime.fromMillisecondsSinceEpoch(lastReportMs),
+    );
+    final label = age.inSeconds < 60
+        ? '${age.inSeconds}s ago'
+        : '${age.inMinutes}m ago';
+
+    return TelemetryText(label, size: 12.5, color: AetherPalette.textMuted);
+  }
+
+  /// Maps a rolling server history onto evenly spaced sparkline points.
+  List<FlSpot> _serverSpots(
+    List<ServerResourceSample> samples,
+    double Function(ServerResourceSample sample) select,
+  ) {
+    return [
+      for (var i = 0; i < samples.length; i++)
+        FlSpot(i.toDouble(), select(samples[i])),
+    ];
   }
 
   Widget _buildRegistryBreakdown(List<Agent> agents, List<Target> targets) {
@@ -429,6 +643,82 @@ class _TelemetryPerspectiveNote extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Semantic accent for a CPU load percentage.
+Color _loadAccent(double cpuPercent) {
+  if (cpuPercent >= 85) {
+    return AetherPalette.crimson;
+  }
+  if (cpuPercent >= 65) {
+    return AetherPalette.amber;
+  }
+  return AetherPalette.emeraldBright;
+}
+
+/// Labels the retained sparkline window as a bare duration, for example `5m`.
+String _windowLabel(int samples) {
+  final seconds = samples * _serverPollInterval.inSeconds;
+
+  if (seconds < 60) {
+    return '${seconds}s';
+  }
+  if (seconds < 3600) {
+    return '${seconds ~/ 60}m';
+  }
+  return '${(seconds / 3600).toStringAsFixed(1)}h';
+}
+
+/// Describes how the master memory footprint moved across the retained window,
+/// so growth is legible without reading the sparkline.
+String _memoryTrend(List<ServerResourceSample> history) {
+  if (history.length < 2) {
+    return 'resident set · awaiting samples';
+  }
+
+  final delta = history.last.memoryBytes - history.first.memoryBytes;
+  final sign = delta < 0 ? '-' : '+';
+
+  return '$sign${_formatBytes(delta.abs())} over ${_windowLabel(history.length)}';
+}
+
+/// Human-readable byte size using binary units.
+String _formatBytes(int bytes) {
+  final value = bytes.toDouble();
+
+  if (value >= 1024 * 1024 * 1024) {
+    return '${(value / (1024 * 1024 * 1024)).toStringAsFixed(1)} GiB';
+  }
+  if (value >= 1024 * 1024) {
+    return '${(value / (1024 * 1024)).toStringAsFixed(0)} MiB';
+  }
+  if (value >= 1024) {
+    return '${(value / 1024).toStringAsFixed(0)} KiB';
+  }
+  return '${value.toStringAsFixed(0)} B';
+}
+
+/// Compact uptime label for the control plane.
+String _formatUptime(int seconds) {
+  if (seconds <= 0) {
+    return '0s';
+  }
+
+  final days = seconds ~/ 86400;
+  final hours = (seconds % 86400) ~/ 3600;
+  final minutes = (seconds % 3600) ~/ 60;
+  final secs = seconds % 60;
+
+  if (days > 0) {
+    return '${days}d ${hours}h';
+  }
+  if (hours > 0) {
+    return '${hours}h ${minutes}m';
+  }
+  if (minutes > 0) {
+    return '${minutes}m ${secs}s';
+  }
+  return '${secs}s';
 }
 
 String _protocolSplit(List<Target> targets) {
