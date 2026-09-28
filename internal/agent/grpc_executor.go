@@ -73,6 +73,13 @@ func (e *GRPCExecutor) dialOptions() []grpc.DialOption {
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
+	// Use the SNI host as the :authority pseudo-header (and as the handshake
+	// server name) so virtual-host routing matches the HTTP executor, which
+	// sets the Host header for the same reason.
+	if e.sni != "" {
+		opts = append(opts, grpc.WithAuthority(e.sni))
+	}
+
 	// Set max message sizes to handle large payloads
 	opts = append(opts,
 		grpc.WithDefaultCallOptions(

@@ -163,6 +163,10 @@ func (e *HTTPExecutor) Execute(ctx context.Context) error {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
+	if e.sni != "" {
+		req.Host = e.sni
+	}
+
 	// Set headers
 	req.Header.Set("User-Agent", "ChaosAgent/1.0")
 	if payload != "" {
